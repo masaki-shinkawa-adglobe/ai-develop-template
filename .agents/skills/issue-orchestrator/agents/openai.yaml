@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Orchestrator"
+  short_description: "Planner、実装者、Reviewerを順番に進行"
+  default_prompt: "Use $issue-orchestrator to implement one GitHub Issue through planning, implementation, and review."

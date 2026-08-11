@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Requirements Interviewer"
+  short_description: "Interview requirements and create scoped GitHub issues"
+  default_prompt: "Use $issue-requirements-interviewer to refine this request and create ready-to-implement GitHub Issues."

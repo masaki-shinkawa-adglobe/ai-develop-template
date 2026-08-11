@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Planner"
+  short_description: "1件のIssueを調査し、具体的な実装計画を作成する"
+  default_prompt: "Use $issue-planner to inspect one Issue and return a concise implementation plan."

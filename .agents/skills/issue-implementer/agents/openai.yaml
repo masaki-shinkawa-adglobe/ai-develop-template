@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Implementer"
+  short_description: "計画に沿って1件のIssueを実装し、関連テストを実行"
+  default_prompt: "Use $issue-implementer to implement the assigned Issue according to the supplied plan."

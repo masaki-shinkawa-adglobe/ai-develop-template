@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Reviewer"
+  short_description: "1件のIssue実装を独立して読み取り専用レビュー"
+  default_prompt: "Use $issue-reviewer to review the supplied Issue implementation without editing files."

@@ -50,6 +50,8 @@ Herdrと`HERDR_ENV=1`は任意の推奨項目です。利用できない場合�
 
 ## Issue 実装フロー
 
+単一Issueの状態、証跡、停止、再開、CI完了条件は[`docs/loop-engineering.md`](docs/loop-engineering.md)を設計上の正とします。Issueごとの実行状態は対象GitHub Issueへ保存します。
+
 `issue-orchestrator` は1件の GitHub Issue を受け取り、次の3役を順番に呼び出します。
 
 ```text

@@ -11,6 +11,7 @@ GitHub Issue の要件整理から実装・レビュー・Draft PR 作成まで�
   issue-planner/                   # 実装計画
   issue-implementer/               # 実装とテスト
   issue-reviewer/                  # 読み取り専用レビュー
+  issue-agent-bootstrap/           # 導入環境の診断・初期化・検証
 ```
 
 ## 要件整理
@@ -66,13 +67,14 @@ Requirements Interviewer と Orchestrator の設定は、直接呼び出す際�
 
 Issue Agent Skillsを新しいリポジトリへ導入するとき、または実行環境を再診断するときは`$issue-agent-bootstrap`を使用します。
 
-Bootstrapは次の順序で実行します。
+Bootstrapは次の順序で実行します。応答の最初の非空行は、`OUTCOME: READY`、`OUTCOME: INITIALIZED`、`OUTCOME: VERIFIED`、`OUTCOME: BLOCKED`のいずれかです。警告、診断結果、変更内容、検証リソースは以降をMarkdownで報告します。
 
-1. `doctor`: Codex、Git、GitHub CLI、GitHub認証、repository操作権限、必須ラベルを読み取り専用で診断する。
-2. `initialize`: 診断結果と変更予定を提示したうえで、不足しているIssue運用ラベルを作成または更新する。
+1. `doctor`: Codex、Git、GitHub CLI、GitHub認証、repository・worktree、実効権限、必須ラベルを読み取り専用で診断する。Herdr、`HERDR_ENV=1`、`herdr --help`、`herdr agent --help`、`herdr pane --help`も確認する。
+2. `initialize`: 変更予定を先に表示し、明示的な実行依頼がある場合だけ、7つの`status:*`・`priority:*`ラベルを合意済みの色と説明へ冪等に収束させる。対象外ラベルは変更しない。
 3. 再診断: 初期化後の状態を読み取り専用で確認する。
-4. `verify`: 明示的に要求された場合だけ、実際のIssueとDraft PRを使ってライブ検証する。
+4. `verify`（通常）: 読み取り専用で再診断、Skill契約、validator、差分を検証する。
+5. `verify`（live）: 明示的な要求に加え、run ID付きテストIssue・Draft PR・branch、GitHub書き込み、成功時・失敗時の後片付け方針を承認した場合だけ、実際のIssueとDraft PRを使って検証する。
 
-Herdrと`HERDR_ENV=1`は任意の推奨項目です。利用できない場合は警告を表示し、Issue OrchestratorはCodexサブエージェントへフォールバックします。必須ツール、GitHub認証、repository操作権限が不足している場合は`BLOCKED`として停止します。
+Herdrと`HERDR_ENV=1`は任意の推奨項目です。利用できない場合は`WARNING`を表示し、Issue OrchestratorはCodexサブエージェントへフォールバックします。必須ツール、GitHub認証、repository・worktree、実効権限、必須ラベルが不足している場合は`BLOCKED`として停止します。
 
-グローバル設定または権限設定の診断エラーを検知した場合、Bootstrapは永続状態を変更せず停止します。ライブ検証では、実行前にGitHubへの書き込み内容と、テストIssue、Draft PR、branchの後片付け方針を確認します。
+グローバル設定または権限設定の診断エラーを検知した場合、Bootstrapは永続状態を変更せず停止します。明示的な承認後もBootstrap自身は修正せず、安全な次の操作を案内します。通常の`verify`は読み取り専用です。live verifyは明示的な要求と、run ID付きのテストIssue、Draft PR、branch、GitHub書き込み、成功時・失敗時の後片付け方針への明示的承認後にだけ実行します。`$issue-orchestrator`を呼び出してOutcome、ラベル遷移、manifest、commit・push、Draft PRのbase/head/bodyを検査し、mergeは行いません。失敗証跡は既定で保持します。

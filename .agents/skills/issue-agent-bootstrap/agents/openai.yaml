@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Agent Bootstrap"
+  short_description: "Diagnose and prepare Issue Agent workflows"
+  default_prompt: "Use $issue-agent-bootstrap to diagnose this repository before running Issue Agent workflows."

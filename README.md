@@ -61,3 +61,18 @@ Requirements Interviewer と Orchestrator の設定は、直接呼び出す際�
 ## 使い方
 
 要件を整理して Issue を作成するときは `$issue-requirements-interviewer`、作成済みの1件の Issue を計画・実装・レビュー・Draft PR 作成まで進めるときは `$issue-orchestrator` を使用します。個別の Planner、Implementer、Reviewer は Orchestrator から呼び出す前提です。
+
+## Bootstrap
+
+Issue Agent Skillsを新しいリポジトリへ導入するとき、または実行環境を再診断するときは`$issue-agent-bootstrap`を使用します。
+
+Bootstrapは次の順序で実行します。
+
+1. `doctor`: Codex、Git、GitHub CLI、GitHub認証、repository操作権限、必須ラベルを読み取り専用で診断する。
+2. `initialize`: 診断結果と変更予定を提示したうえで、不足しているIssue運用ラベルを作成または更新する。
+3. 再診断: 初期化後の状態を読み取り専用で確認する。
+4. `verify`: 明示的に要求された場合だけ、実際のIssueとDraft PRを使ってライブ検証する。
+
+Herdrと`HERDR_ENV=1`は任意の推奨項目です。利用できない場合は警告を表示し、Issue OrchestratorはCodexサブエージェントへフォールバックします。必須ツール、GitHub認証、repository操作権限が不足している場合は`BLOCKED`として停止します。
+
+グローバル設定または権限設定の診断エラーを検知した場合、Bootstrapは永続状態を変更せず停止します。ライブ検証では、実行前にGitHubへの書き込み内容と、テストIssue、Draft PR、branchの後片付け方針を確認します。

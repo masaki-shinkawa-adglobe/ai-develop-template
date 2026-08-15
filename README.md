@@ -42,7 +42,7 @@ Herdrと`HERDR_ENV=1`は任意の推奨項目です。利用できない場合�
 
 ## 使い方
 
-要件を整理して Issue を作成するときは `$issue-requirements-interviewer`、作成済みの1件の Issue を計画・実装・レビュー・Draft PR 作成まで進めるときは `$issue-orchestrator` を使用します。個別の Planner、Implementer、Reviewer は Orchestrator から呼び出す前提です。
+要件を整理して Issue を作成するときは `$issue-requirements-interviewer`、作成済みの1件の Issue を計画・実装・レビュー・Draft PR 作成まで進めるときは `$issue-orchestrator` を使用します。個別の Planner、Implementer、Conflict Resolver、Reviewer は Orchestrator から呼び出す前提です。
 
 ## 要件整理
 
@@ -52,17 +52,25 @@ Herdrと`HERDR_ENV=1`は任意の推奨項目です。利用できない場合�
 
 単一Issueの状態、証跡、停止、再開、CI完了条件は[`docs/loop-engineering.md`](docs/loop-engineering.md)を設計上の正とします。Issueごとの実行状態は対象GitHub Issueへ保存します。
 
-`issue-orchestrator` は1件の GitHub Issue を受け取り、次の3役を順番に呼び出します。
+`issue-orchestrator` は1件の GitHub Issue を受け取り、3つの通常Roleと、実際のmerge conflict時だけConflict Resolverを呼び出します。
 
-```text
-Issue Orchestrator
-  → Issue Planner
-  → Issue Implementer
-  → Issue Reviewer
+```mermaid
+flowchart LR
+  O[Issue Orchestrator] --> P[Issue Planner]
+  P --> I[Issue Implementer]
+  I --> R[Issue Reviewer]
+  R -->|APPROVED| PUB[publish準備]
+  R -->|CHANGES_REQUESTED| I
+  PUB --> C{merge conflict?}
+  C -->|no| PR[Draft PR]
+  C -->|yes| CR[Issue Conflict Resolver]
+  CR -->|RESOLVED| R
+  CR -->|BLOCKED| B[停止]
 ```
 
 - Planner は関連コードとテストを読み、実装計画だけを作成します。
 - Implementer は計画に沿って実装とテストを行います。
+- Conflict Resolver はGitが実際に生成した競合だけを対象に、競合元PR・Issue・commit履歴から意図を調査し、競合ファイルを解消します。
 - Reviewer は変更を編集せず、Issue の完了条件、差分、テスト結果を独立して確認します。
 - Reviewer が変更を要求した場合は、同じ Implementer が修正し、同じ Reviewer が再レビューします。
 - Reviewer が承認した変更だけを Orchestrator が commit・push し、GitHub CLI で Draft PR を作成します。
@@ -77,6 +85,7 @@ Orchestrator は Herdr を利用できる場合、各役を専用 pane で実行
 | Issue Orchestrator | `gpt-5.6-sol` | `medium` |
 | Issue Planner | `gpt-5.6-terra` | `medium` |
 | Issue Implementer | `gpt-5.6-terra` | `medium` |
+| Issue Conflict Resolver | `gpt-5.6-sol` | `high` |
 | Issue Reviewer | `gpt-5.6-sol` | `high` |
 
-Requirements Interviewer と Orchestrator の設定は、直接呼び出す際の推奨値です。Orchestrator は Planner、Implementer、Reviewer を表の設定で起動し、指定モデルを利用できない場合は別モデルへ自動で切り替えず `BLOCKED` として報告します。
+Requirements Interviewer と Orchestrator の設定は、直接呼び出す際の推奨値です。Orchestrator は Planner、Implementer、Conflict Resolver、Reviewer を表の設定で起動し、指定モデルを利用できない場合は別モデルへ自動で切り替えず `BLOCKED` として報告します。

@@ -38,7 +38,7 @@ On that explicit execution request, converge only the labels in this table. Crea
 
 | Label | Color | Description |
 | --- | --- | --- |
-| `status:in-progress` | `1D76DB` | `Planner、Implementer、レビュー指摘の修正中` |
+| `status:in-progress` | `1D76DB` | `Planner、Implementer、Conflict Resolver、レビュー指摘の修正中` |
 | `status:review` | `FBCA04` | `Reviewer実行中、Reviewer承認後、Draft PR作成後` |
 | `status:blocked` | `D73A4A` | `作業を続行できないblockerあり` |
 | `priority:critical` | `B60205` | `サービス停止、重大なセキュリティ問題、またはデータ損失` |
@@ -58,6 +58,6 @@ Perform live verification only when the user explicitly requests it and explicit
 - GitHub writes, including label transitions and the orchestrated commit and push.
 - The cleanup policy for both success and failure. Preserve failure evidence by default; delete only resources explicitly approved for cleanup.
 
-After approval, create resources whose titles, branch, and report include the run ID. Invoke `$issue-orchestrator` for the test Issue. Validate the Planner, Implementer, and Reviewer outcomes; the required `status:*` label transitions; the Implementer cumulative manifest; the reviewed commit and push; and the Draft PR's draft state, base, head, and body. Never merge.
+After approval, create resources whose titles, branch, and report include the run ID. Invoke `$issue-orchestrator` for the test Issue. Validate the Planner, Implementer, and Reviewer outcomes; the required `status:*` label transitions; the three manifest categories; the reviewed commit and push; and the Draft PR's draft state, base, head, and body. Validate the Conflict Resolver outcome only when the explicitly approved live scenario actually creates a merge conflict. Never merge merely to add conflict coverage to a live verification that did not approve it.
 
 Report the Issue URL, PR URL, branch, every inspected result, cleanup actions, and retained failure evidence. Clean up only approved run-ID resources and never touch unrelated resources. Return `OUTCOME: VERIFIED` only after every approved check succeeds; otherwise return `OUTCOME: BLOCKED` with evidence and remaining resources.

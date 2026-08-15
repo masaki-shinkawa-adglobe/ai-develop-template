@@ -23,6 +23,8 @@ Orchestratorから起動するときは、`gpt-5.6-terra` と reasoning effort `
 6. 一時ファイル、検証用変更、プロセス、コンテナなど、自分が作成した検証環境を後片付けする。
 7. `git status --short`を確認し、変更内容、累積した変更ファイル、テスト結果、残作業を返す。
 
+Conflict Resolverの解消後にReviewerから修正を依頼された場合は、Orchestratorから渡された競合意図の根拠、conflict-resolution manifest、reconciliation manifest、Reviewerの指摘も読む。修正は通常のIssue実装として行い、自分が追加で変更したファイルをImplementerの累積manifestへ記録する。意図の根拠不足、矛盾、または両立不能を推測で補わない。
+
 ## 実行環境
 
 Docker Composeを使う検証では、原則として現在のリポジトリのComposeプロジェクトを`docker compose down --remove-orphans`で整理してから開始する。

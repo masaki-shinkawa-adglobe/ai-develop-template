@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Conflict Resolver"
+  short_description: "競合するPRの意図を調査し、安全にmerge conflictを解消"
+  default_prompt: "Use $issue-conflict-resolver to resolve the supplied merge conflict from documented PR intent."

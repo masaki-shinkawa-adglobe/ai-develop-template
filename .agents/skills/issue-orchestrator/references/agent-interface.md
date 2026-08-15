@@ -106,12 +106,35 @@ Conflict Resolver
   BLOCKED            -> 利用者へ報告して終了
 
 Reviewer
-  APPROVED           -> publish
-  CHANGES_REQUESTED  -> 同じImplementerへ差し戻し、同じReviewerが再レビュー
+  APPROVED           -> PUBLISHING
+  CHANGES_REQUESTED  -> 上限内なら同じImplementerへ差し戻し、同じReviewerが再レビュー
+  BLOCKED            -> 利用者へ報告して終了
+
+PUBLISHING
+  required CI成功                 -> COMPLETED
+  required CI未設定               -> 未設定の証跡を保存してCOMPLETED
+  required CI進行中かつ5分無変化  -> WAITING_FOR_CI
+  実装起因のrequired CI失敗       -> CI_REMEDIATION
+  外部障害または原因不明          -> BLOCKED
+
+WAITING_FOR_CI
+  required CI成功                 -> COMPLETED
+  required CI進行中かつ5分無変化  -> WAITING_FOR_CI
+  実装起因のrequired CI失敗       -> CI_REMEDIATION
+  外部障害または原因不明          -> BLOCKED
+
+CI_REMEDIATION
+  IMPLEMENTED        -> 同じReviewerが再レビュー
   BLOCKED            -> 利用者へ報告して終了
 ```
 
-レビュー修正ループに固定回数は設けない。Orchestratorが同じ指摘の反復、修正不能、Issue範囲の逸脱、外部判断の必要性を検知した場合は停滞として終了し、利用者へ報告する。
+OrchestratorはReviewerから`CHANGES_REQUESTED`を受けるたびに、Run全体の累積差し戻し回数を加算し、回数と指摘分類をactive marker付き状態コメントへ保存する。Issueに別の上限が明示されていなければ最大3回まで同じImplementerへ差し戻す。4回目の`CHANGES_REQUESTED`ではImplementerへ渡さず、停止直前の状態を`REVIEWING`、保存済み再開状態を`IMPLEMENTING`として、上限変更など再開に必要な人の判断を保存し、`BLOCKED`とする。Conflict Resolver後または`CI_REMEDIATION`後の再レビューも同じ累積回数へ含める。
+
+同じ指摘または同じテスト失敗が修正後も2回続くか、manifest、テスト結果、指摘内容に実質的な進展がない状態が2周続いた場合は、差し戻し上限に達する前でも`BLOCKED`とする。
+
+`PUBLISHING`後はDraft PRのbase branchに対するbranch protectionとrulesetが現在のPR head SHAへ要求するcheckを必須CIとして取得し、30秒ごとに確認する。必須checkを信頼できる方法で判定できない場合は未設定と推測せず`BLOCKED`とする。すべて成功した場合、または必須CI未設定の事実を記録した場合だけ、完了条件を再確認して`COMPLETED`とする。失敗したcheck、ログの安全な要約、関連テスト、レビュー済み差分からIssue実装に起因すると説明できる失敗だけを`CI_REMEDIATION`として同じImplementerへ渡し、関連テスト、同じReviewerの再レビュー、レビュー済み変更だけのcommitと同じbranchへのpushを経て、新しいhead SHAのCIを確認する。外部障害または原因不明は`BLOCKED`とし、状態と補助ログの双方が5分間無変化ならCIを継続させたまま`WAITING_FOR_CI`として現在の実行を終了する。
+
+Orchestratorは状態遷移、差し戻し回数、CI対象SHAとcheck状態、待機・停止理由を`<!-- issue-agent-run-state:active:v1 -->`付き状態コメントへ保存する。`COMPLETED`は、Reviewer承認、3つのmanifestの由来とレビュー、default branch向けDraft PR、PR head SHAと確認対象CIのSHA一致、必須CIの全成功または未設定の記録を確認し、状態コメントとmarkerなしの完了チェックポイントを更新した後だけ成立する。
 
 ## 変更manifest
 

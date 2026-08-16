@@ -51,7 +51,7 @@ Herdrと`HERDR_ENV=1`は任意の推奨項目です。利用できない場合�
 
 ## Issue 実装フロー
 
-単一Issueの状態、証跡、停止、再開、CI完了条件は[`docs/loop-engineering.md`](docs/loop-engineering.md)を設計上の正とします。公開可能な実行状態、安全な要約、opaque checkpointは対象GitHub Issueへ保存し、完全な成果物、fingerprint、manifest、生path、unsalted Git blob ID、検証用秘密は権限制限された永続保存先へ分離します。
+単一Issueの状態、証跡、停止、再開、CI完了条件は[`docs/loop-engineering.md`](docs/loop-engineering.md)を設計上の正とします。完全な成果物、fingerprint、manifest、生path、unsalted Git blob ID、検証用秘密は、`ISSUE_AGENT_STATE_DIR`または`${XDG_STATE_HOME:-$HOME/.local/state}/issue-agent-runs`の権限制限されたlocal filesystem backendへ分離します。Run directoryは正規化repository remote URLのSHA-256、Issue番号、run IDから決定的に発見し、rootとRun directoryはいずれも実効ユーザー所有・非symlink・`0700`相当でなければなりません。公開Issueには保存pathを出さず、opaque checkpointだけを対応付けます。不在・不安全・digest照合不能なbackendは`BLOCKED`であり、Bootstrapが明示承認時にだけ不足した標準rootと指定Run directoryを作成します。
 
 `issue-orchestrator` は1件の GitHub Issue を受け取り、3つの通常Roleと、実際のmerge conflict時だけConflict Resolverを呼び出します。
 

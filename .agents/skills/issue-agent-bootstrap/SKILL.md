@@ -27,14 +27,15 @@ Keep `doctor` read-only. Identify the repository root and worktree, then record 
 3. Repository and worktree state (`git rev-parse --show-toplevel`, `git status --porcelain=v1 -uall`, branch, remotes, and whether the worktree is usable). Treat an unexpected dirty worktree as a diagnostic finding; do not overwrite it.
 4. The seven required labels by listing labels read-only and comparing exact name, color, and description against the table below.
 5. Herdr: `HERDR_ENV=1`, `command -v herdr`, `herdr --help`, `herdr agent --help`, and `herdr pane --help`. Check all five conditions. If any Herdr condition fails, report `WARNING` and state that `$issue-orchestrator` will use Codex subagents; do not block solely for Herdr.
+6. The Issue Agent state backend: resolve `ISSUE_AGENT_STATE_DIR`, or `${XDG_STATE_HOME:-$HOME/.local/state}/issue-agent-runs` when it is unset. For a supplied repository, Issue number, and run ID, normalize the remote URL by removing credentials, a trailing `/`, and an optional `.git`, SHA-256 it, and resolve `<root>/<repository-id>/<Issue番号>/<run ID>`. Read-only diagnose the root and Run directory existence, directory type, ownership by the effective user, mode with no access for other users, and symlink status. When either is absent, read-only check whether its parent directory is writable and searchable for creation; do not create it during `doctor`.
 
-Treat Codex, Git, `gh`, GitHub authentication, repository access, effective required permission, usable repository/worktree, and all seven labels as required. If any required check fails, return `OUTCOME: BLOCKED` with the failed check and safe next action. If a global configuration or permission diagnostic produces an error, stop read-only, report the error without secrets, and never repair it; suggest a safe next action. Return `OUTCOME: READY` only when required checks pass; retain Herdr warnings in the report.
+Treat Codex, Git, `gh`, GitHub authentication, repository access, effective required permission, usable repository/worktree, all seven labels, and the state backend as required. The root and Run directory must be effective-user-owned directories, not symlinks, with no group or other access (`0700` equivalent). If a required backend is absent, unsafe, or its digest cannot be verified, return `OUTCOME: BLOCKED`; do not use an Issue comment as a substitute. If any required check fails, return `OUTCOME: BLOCKED` with the failed check and safe next action. If a global configuration or permission diagnostic produces an error, stop read-only, report the error without secrets, and never repair it; suggest a safe next action. Return `OUTCOME: READY` only when required checks pass; retain Herdr warnings in the report.
 
 ## initialize
 
-First run `doctor` and show a preview containing only missing or differing labels. Do not mutate anything until the user explicitly asks to execute the displayed initialization.
+First run `doctor` and show a preview containing only missing or differing labels and missing state directories. Do not mutate anything until the user explicitly asks to execute the displayed initialization.
 
-On that explicit execution request, converge only the labels in this table. Create a missing label; update an existing label only if its color or description differs; leave every other label unchanged. Use GitHub CLI or its API idempotently, then run `doctor` again. Return `OUTCOME: INITIALIZED` only if the re-diagnosis matches the table. Otherwise return `OUTCOME: BLOCKED` with the remaining difference.
+On that explicit execution request, converge only the labels in this table and the absent standard state directories identified in the preview. Create a missing label; update an existing label only if its color or description differs; leave every other label unchanged. For a supplied repository, Issue number, and run ID, Bootstrap may create only the missing standard root and its deterministic Run directory, as effective-user-owned non-symlink directories with `0700` permissions. Never repair ownership, permissions, type, or symlinks on an existing path; report that state as `BLOCKED`. Use GitHub CLI or its API idempotently for labels, then run `doctor` again. Return `OUTCOME: INITIALIZED` only if the re-diagnosis matches the table and backend requirements. Otherwise return `OUTCOME: BLOCKED` with the remaining difference.
 
 | Label | Color | Description |
 | --- | --- | --- |
@@ -50,7 +51,7 @@ Never use Bootstrap to modify global configuration or permissions, including aft
 
 ## verify
 
-Keep normal `verify` read-only: re-run `doctor`, inspect the Skill files and the Orchestrator contract, run the skill validator and `git diff --check`, and report `OUTCOME: READY` when the environment and static checks pass. Never create GitHub resources in normal verification.
+Keep normal `verify` read-only: re-run `doctor`, inspect the Skill files and the Orchestrator contract for the same backend resolution, discovery, initialization, permission, opaque-checkpoint, and initial-Implementer verification rules, run the skill validator and `git diff --check`, and report `OUTCOME: READY` when the environment and static checks pass. Never create GitHub resources or state directories in normal verification.
 
 Perform live verification only when the user explicitly requests it and explicitly approves all of the following before any write:
 

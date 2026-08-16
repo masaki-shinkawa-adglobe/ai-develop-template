@@ -4,7 +4,7 @@
 
 Issue Agent Skillsが扱う単一のGitHub Issueについて、計画、実装、レビュー、publish、CI確認を、観測可能で停止・再開可能なループとして定義する。
 
-本書はループの不変な設計契約の単一の正とする。Issueごとに変化する公開可能な実行状態、安全な要約、opaque checkpointは、本書やrepository内のファイルではなく対象GitHub Issueへ保存する。完全なRole成果物、fingerprint、manifest、生path、unsalted Git blob ID、検証用秘密は権限制限された永続保存先へ分離し、公開Issueには保存しない。
+本書はループの不変な設計契約の単一の正とする。Issueごとに変化する公開可能な実行状態、安全な要約、opaque checkpointは、本書やrepository内のファイルではなく対象GitHub Issueへ保存する。完全なRole成果物、fingerprint、manifest、生path、unsalted Git blob ID、検証用秘密は後述する権限制限された永続保存backendへ分離し、公開Issueには保存しない。
 
 ## 対象範囲
 
@@ -38,6 +38,14 @@ Issue
 OrchestratorはPlannerを開始する前に一意なrun IDを発行する。同じIssueを中断地点から再開するときは同じrun IDを使う。利用者が以前の状態を破棄して最初からやり直すことを明示した場合だけ、新しいrun IDを発行する。
 
 run IDの再利用や新規発行を推測で決めない。既存Runと新しい実行が競合する場合は`BLOCKED`とする。
+
+## 権限制限された永続保存backend
+
+標準backendはローカルfilesystemとする。保存rootは`ISSUE_AGENT_STATE_DIR`が設定されていればその値、未設定なら`${XDG_STATE_HOME:-$HOME/.local/state}/issue-agent-runs`とする。repository remote URLを認証情報・末尾の`/`・任意の`.git`を除いて正規化し、そのUTF-8表現のSHA-256を`repository-id`とする。Run directoryは`<保存root>/<repository-id>/<Issue番号>/<run ID>`で決定的に発見する。
+
+保存rootとRun directoryは、現在の実効ユーザーが所有するsymlinkではないdirectoryであり、所有者以外に読取り・書込み・実行のいずれも許可しない（`0700`相当）ことを必須とする。存在しない、directoryでない、symlink、所有者不一致、または権限が安全でない場合は、Orchestratorは作成・権限修復・代替場所への保存をせず`BLOCKED`とする。
+
+Bootstrap `doctor`はこの実効保存先、存在、種別、所有者、mode、symlink、および未作成時に親directoryを作成可能かを読み取り専用で診断する。明示承認されたBootstrap `initialize`だけが、不足している標準保存rootと、指定されたrepository・Issue・run IDのRun directoryを安全なmodeで作成できる。不安全な既存状態は自動修復しない。公開Issueは保存pathを記録せず、private backend内の成果物・fingerprint・manifest・digestを指すopaque checkpointだけを対応付ける。
 
 ## 状態モデル
 
@@ -143,7 +151,7 @@ stateDiagram-v2
 
 停止直前の状態はblockerを検知した状態を示す監査情報であり、再開時の遷移先には使用しない。保存済みの再開状態は、最後に検証済みのチェックポイントに基づく、次に着手すべき未完了の状態である。たとえば`IMPLEMENTING`の処理が完了した後、`REVIEWING`へ移るためのラベル更新で停止した場合、停止直前の状態は`IMPLEMENTING`、再開状態は`REVIEWING`とする。両者は一致してもよいが、再開時に一方から他方を推測してはならない。
 
-Role成果物は、paneやAgent instanceが失われても次のRoleが推測なしに着手できるよう権限制限された永続保存先へ保存する。公開Issueコメントにはopaque checkpoint、安全な要約、秘匿化済み整合性表現だけを残し、pane、session、Agent instance、ローカル一時ファイル、公開コメントを唯一の保存先にしない。参照先を取得できない、または保存済み整合性表現と一致しない場合は、完了済みRoleを成果物の復元だけのために再実行せず`BLOCKED`とする。安全な保存先がなければ公開コメントを代替にせず`BLOCKED`とする。
+Role成果物は、paneやAgent instanceが失われても次のRoleが推測なしに着手できるよう、前節のRun directoryへ保存する。公開Issueコメントには保存pathを含めず、opaque checkpoint、安全な要約、秘匿化済み整合性表現だけを残し、pane、session、Agent instance、ローカル一時ファイル、公開コメントを唯一の保存先にしない。Run directory、参照先または保存digestを取得・照合できない場合は、完了済みRoleを成果物の復元だけのために再実行せず`BLOCKED`とする。安全なbackendがなければ公開コメントを代替にせず`BLOCKED`とする。
 
 worktree fingerprintは、HEAD、`git status --porcelain=v1 -uall`の完全な結果、全変更pathのindexとworktreeのblob ID、mode、存在・削除状態を含む。未追跡ファイルもstageせず内容のblob IDを記録する。正規化した全項目のdigestを併記し、path集合だけで同一性を判定しない。完全fingerprint、完全porcelain、生path、unsalted blob ID、検証用秘密は権限制限された永続保存先だけへ残す。状態コメントとmarkerなしコメントにはopaque checkpoint、安全な要約、秘匿化済み整合性表現だけを保存し、安全な保存先がなければ`BLOCKED`とする。
 
@@ -243,7 +251,8 @@ Draft解除、PR承認、merge、branch削除、worktree cleanupは完了条件�
 | `WAITING_FOR_CI`後の再開 | 前のOrchestrator実行が終了し、永続成果物と実態が一致 | 同じRole・指定モデルの新しいAgent instanceで再開し、CI確認を続行 |
 | 引き渡し成果物の欠落 | 完了済みRoleの成果物も永続参照先も取得できない | Roleの再実行や推測で復元せず`BLOCKED` |
 | 停止中の同一path編集 | manifest内のpathは同じだが保存済みfingerprintと内容identityが異なる | Implementer由来とみなさず、由来を不変の証跡で説明できなければ内容を開かず`BLOCKED` |
-| Implementer返却直後 | 手順6または16で`IMPLEMENTED`を返す | 呼出し直前・最後に検証済み・返却時のfingerprintと3 manifestの照合成功前には成果物もcheckpointも更新しない |
+| Implementer返却直後 | 初回、手順6または16で`IMPLEMENTED`を返す | 成果物を仮保持し、呼出し直前・最後に検証済み・返却時のfingerprintと3 manifestの照合成功前には成果物もcheckpointも更新しない |
+| 保存backend未準備 | rootまたはRun directoryが未作成・不安全、またはdigest照合不能 | 公開Issueを代替保存先や推測復元に使わず`BLOCKED` |
 | 完了済みIssueの再実行 | `COMPLETED`の保存状態と実態が一致 | 状態遷移と新しいrun ID発行を行わず、完了済みとして報告 |
 | 完了後のbase conflict | 通常のbase更新によるconflictだけを検知 | 同じrun IDで`COMPLETED`から`CONFLICT_RESOLUTION`へ遷移 |
 | 完了後のその他の不一致 | Draft PRのhead変更または未レビュー変更を検知 | 同じrun IDで`COMPLETED`から`BLOCKED`へ遷移し、不一致と必要な対応を保存 |

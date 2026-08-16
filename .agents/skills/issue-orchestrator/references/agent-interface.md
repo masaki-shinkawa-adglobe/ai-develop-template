@@ -130,7 +130,7 @@ CI_REMEDIATION
   BLOCKED            -> 利用者へ報告して終了
 ```
 
-`WAITING_FOR_CI`で現在のOrchestrator実行が終了した後は、権限制限された永続保存先の成果物と実態の照合に成功した場合、同じRole・指定モデルの新しいAgent instanceで再開できる。同じImplementer・Reviewerは同一Orchestrator実行内のinstance継続だけを意味する。新instanceのReviewerは3つのmanifestの和集合を再レビューする。
+`WAITING_FOR_CI`で現在のOrchestrator実行が終了した後は、`ISSUE_AGENT_STATE_DIR`または`${XDG_STATE_HOME:-$HOME/.local/state}/issue-agent-runs`のlocal filesystem backendにある成果物と実態の照合に成功した場合、同じRole・指定モデルの新しいAgent instanceで再開できる。Run directoryは、認証情報・末尾の`/`・任意の`.git`を除いた正規化repository remote URLのSHA-256、Issue番号、run IDから決定的に発見する。rootとRun directoryは実効ユーザー所有の非symlink directoryかつ`0700`相当でなければならない。不在、不安全、またはdigest不一致なら公開Issueを代替にせず`BLOCKED`とする。同じImplementer・Reviewerは同一Orchestrator実行内のinstance継続だけを意味する。新instanceのReviewerは3つのmanifestの和集合を再レビューする。
 
 OrchestratorはReviewerから`CHANGES_REQUESTED`を受けるたびに、Run全体の累積差し戻し回数を加算し、回数と指摘分類をactive marker付き状態コメントへ保存する。Issueに別の上限が明示されていなければ最大3回まで同じImplementerへ差し戻す。4回目の`CHANGES_REQUESTED`ではImplementerへ渡さず、停止直前の状態を`REVIEWING`、保存済み再開状態を`IMPLEMENTING`として、上限変更など再開に必要な人の判断を保存し、`BLOCKED`とする。Conflict Resolver後または`CI_REMEDIATION`後の再レビューも同じ累積回数へ含める。
 
@@ -138,7 +138,7 @@ OrchestratorはReviewerから`CHANGES_REQUESTED`を受けるたびに、Run全�
 
 `PUBLISHING`後はDraft PRのbase branchに対するbranch protectionとrulesetが現在のPR head SHAへ要求するcheckを必須CIとして取得し、30秒ごとに確認する。必須checkを信頼できる方法で判定できない場合は未設定と推測せず`BLOCKED`とする。すべて成功した場合、または必須CI未設定の事実を記録した場合だけ、完了条件を再確認して`COMPLETED`とする。失敗したcheck、ログの安全な要約、関連テスト、レビュー済み差分からIssue実装に起因すると説明できる失敗だけを`CI_REMEDIATION`として同じImplementerへ渡し、関連テスト、同じReviewerの再レビュー、レビュー済み変更だけのcommitと同じbranchへのpushを経て、新しいhead SHAのCIを確認する。外部障害または原因不明は`BLOCKED`とし、状態と補助ログの双方が5分間無変化ならCIを継続させたまま`WAITING_FOR_CI`として現在の実行を終了する。
 
-Orchestratorは状態遷移、差し戻し回数、CI対象SHAとcheck状態、待機・停止理由、opaque checkpoint、安全な要約、秘匿化済み整合性表現を`<!-- issue-agent-run-state:active:v1 -->`付き状態コメントへ保存する。完全fingerprint、完全な`git status --porcelain=v1 -uall`、生path、unsalted Git blob ID、検証用秘密は権限制限された永続保存先だけへ保存し、公開コメントへ出さない。安全な保存先がなければ公開コメントを代替にせず`BLOCKED`とする。`COMPLETED`は、Reviewer承認、3つのmanifestの由来とレビュー、default branch向けDraft PR、PR head SHAと確認対象CIのSHA一致、必須CIの全成功または未設定の記録を確認し、公開状態コメントと安全な完了checkpointを更新した後だけ成立する。
+Orchestratorは状態遷移、差し戻し回数、CI対象SHAとcheck状態、待機・停止理由、opaque checkpoint、安全な要約、秘匿化済み整合性表現を`<!-- issue-agent-run-state:active:v1 -->`付き状態コメントへ保存する。完全fingerprint、完全な`git status --porcelain=v1 -uall`、生path、unsalted Git blob ID、検証用秘密はdeterministicに発見した安全なRun directoryだけへ保存し、公開コメントへ保存pathを含めない。安全なbackendがなければ公開コメントを代替にせず`BLOCKED`とする。`COMPLETED`は、Reviewer承認、3つのmanifestの由来とレビュー、default branch向けDraft PR、PR head SHAと確認対象CIのSHA一致、必須CIの全成功または未設定の記録を確認し、公開状態コメントと安全な完了checkpointを更新した後だけ成立する。
 
 ## 再開用成果物
 
@@ -151,7 +151,7 @@ OrchestratorはRoleのOutcome名だけでなく、次の安全な引き渡し内
 - `APPROVED`: 確認結果、承認対象のworktree fingerprintまたはcommit、承認済みPR本文
 - `BLOCKED`: blocker、完了済み成果物、再開に必要な判断または外部変更
 
-参照先は権限制限された永続保存先に限り、pane、session、Agent instance、ローカル一時ファイル、公開Issueコメントを唯一の保存先にしない。公開コメントにはopaque checkpoint、安全な要約、秘匿化済み整合性表現だけを残す。再開時に成果物または参照先を取得できない、もしくは保存digestと一致しない場合は、完了済みRoleの再実行や推測で復元せず`BLOCKED`とする。
+参照先は決定的に発見した安全なRun directoryに限り、pane、session、Agent instance、ローカル一時ファイル、公開Issueコメントを唯一の保存先にしない。公開コメントには保存pathを含めずopaque checkpoint、安全な要約、秘匿化済み整合性表現だけを残す。再開時に成果物または参照先を取得できない、もしくは保存digestと一致しない場合は、完了済みRoleの再実行や推測で復元せず`BLOCKED`とする。
 
 ## 変更manifest
 
@@ -167,7 +167,7 @@ Orchestratorは新規Run開始時と各検証済みチェックポイントでwo
 
 Orchestratorはレビュー前、再開時、stage・commit前に、開始時、最後に検証済み、現在のfingerprintと3つのmanifestを比較する。開始後に増えたmanifest外の変更があれば、その由来を安全に説明できる場合だけ該当するmanifestへ記録する。manifest内でpathが同じでもblob ID、mode、存在状態のいずれかが保存後に変わっていれば同一変更とみなさず、commitや外部変更者の明示記録など不変の証跡で由来を説明できない限り、内容を開かず`BLOCKED`とする。照合前の変化をImplementerの累積manifestへ自動的に帰属させない。
 
-手順6と16の各Implementer返却後は、成果物またはcheckpointを更新する前に、呼出し直前、最後に検証済み、返却時のfingerprintと3つのmanifestを照合する。同一pathのidentity変化を不変の証跡で説明できた場合だけ成果物と検証済みcheckpointを更新し、説明できない場合は内容を開かず`BLOCKED`とする。
+初回を含む手順3、6、16の各Implementer返却後は、成果物を仮保持し、成果物またはcheckpointを更新する前に、呼出し直前、最後に検証済み、返却時のfingerprintと3つのmanifestを照合する。同一pathのidentity変化を不変の証跡で説明できた場合だけ成果物と検証済みcheckpointを更新し、説明できない場合は仮保持した成果物の内容を開かず`BLOCKED`とする。
 
 base mergeで自動的に取り込まれ、取得済みbase SHAのblobと同一であることをOrchestratorが検証したpathは、Runが作成した変更ではないため3つのmanifestへ加えない。Reviewerにはbase SHA、blob同一性の検証結果、baseに対するPR差分を渡す。同一性を証明できないpathは通常のmanifest規則に従い、由来を説明できなければ`BLOCKED`とする。
 

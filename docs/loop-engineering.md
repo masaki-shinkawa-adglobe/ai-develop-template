@@ -4,7 +4,7 @@
 
 Issue Agent Skillsが扱う単一のGitHub Issueについて、計画、実装、レビュー、publish、CI確認を、観測可能で停止・再開可能なループとして定義する。
 
-本書はループの不変な設計契約の単一の正とする。Issueごとに変化する実行状態は、本書やrepository内のファイルではなく、対象GitHub Issueへ保存する。
+本書はループの不変な設計契約の単一の正とする。Issueごとに変化する公開可能な実行状態、安全な要約、opaque checkpointは、本書やrepository内のファイルではなく対象GitHub Issueへ保存する。完全なRole成果物、fingerprint、manifest、生path、unsalted Git blob ID、検証用秘密は権限制限された永続保存先へ分離し、公開Issueには保存しない。
 
 ## 対象範囲
 
@@ -27,8 +27,8 @@ Issue
 
 - 本書は状態、遷移、証跡、停止、再開、完了の設計を定義する。
 - `.agents/skills/issue-orchestrator/SKILL.md`と`references/agent-interface.md`は、本書を実行可能なAgent契約へ具体化する。
-- 対象Issueの専用状態コメントは、個別Runの現在状態を保持する。
-- Issueタイムライン上のチェックポイントコメントは、重要な判断履歴を保持する。
+- 対象Issueの専用状態コメントは、個別Runの公開可能な現在状態を保持する。
+- Issueタイムライン上のチェックポイントコメントは、安全な要約と秘匿化済み整合性表現による重要な判断履歴を保持する。
 - Git、GitHub、CIの実態は保存状態より優先する。再開時は両者を照合する。
 
 設計と実行状態を同じrepository文書へ混在させない。実行状態をrepositoryへ保存すると、複数Issue間の編集競合、状態更新のためのcommit、古い状態の残存が発生するためである。
@@ -122,24 +122,20 @@ stateDiagram-v2
 
 利用者が以前の状態を破棄して新しいRunを開始すると明示した場合は、旧Runの要約、破棄理由、旧run ID、新run IDをmarkerなしのチェックポイントコメントへ追記してから、同じ専用状態コメントを新Runの状態で更新する。過去Runのコメントへactive markerを残さない。
 
-状態コメントには少なくとも次を記録する。
+状態コメントには少なくとも次の公開可能な情報を記録する。
 
 - run ID
 - 開始時刻、最終更新時刻、終了時刻
 - 現在状態、停止直前の状態、保存済みの再開状態、最後に検証済みのチェックポイント
 - Planner、Implementer、Conflict Resolver、Reviewerと使用モデル
 - 各AgentのOutcome
-- Plannerの計画、最新Implementerの変更・テスト・残作業
-- 未解決のReviewer指摘、Conflict Resolverの意図の根拠と解消内容
-- Reviewer承認の対象と承認済みPR本文
+- Role成果物の種類と安全な要約
 - レビュー差し戻し回数と指摘分類
 - 実行したテストと成否
-- Implementerの累積manifest
-- Conflict Resolverのconflict-resolution manifest
-- 外部変更の由来と範囲を記録するreconciliation manifest
+- 3つのmanifestが権限制限された永続保存先にあることを示すopaque checkpoint
 - branch、commit、Draft PR、head SHA
 - 必須CIと各checkの状態
-- 開始時と各検証済みチェックポイントのworktree fingerprint
+- opaque checkpoint、安全な要約、秘匿化済み整合性表現
 - 停止理由または待機理由
 - 再開地点と次に行う確認
 - 人の介入回数
@@ -147,11 +143,11 @@ stateDiagram-v2
 
 停止直前の状態はblockerを検知した状態を示す監査情報であり、再開時の遷移先には使用しない。保存済みの再開状態は、最後に検証済みのチェックポイントに基づく、次に着手すべき未完了の状態である。たとえば`IMPLEMENTING`の処理が完了した後、`REVIEWING`へ移るためのラベル更新で停止した場合、停止直前の状態は`IMPLEMENTING`、再開状態は`REVIEWING`とする。両者は一致してもよいが、再開時に一方から他方を推測してはならない。
 
-Role成果物は、paneやAgent instanceが失われても次のRoleが推測なしに着手できる安全な引き渡し内容として保存する。状態コメントへ収まらない場合は同じIssueのmarkerなしコメントへ保存し、状態コメントへrun ID、checkpointまたは差し戻しcycle、comment IDまたはURL、成果物種別、内容digestを記録する。pane、session、Agent instance、ローカル一時ファイルだけを参照先にしない。参照先を取得できない、またはdigestが一致しない場合は、完了済みRoleを成果物の復元だけのために再実行せず`BLOCKED`とする。
+Role成果物は、paneやAgent instanceが失われても次のRoleが推測なしに着手できるよう権限制限された永続保存先へ保存する。公開Issueコメントにはopaque checkpoint、安全な要約、秘匿化済み整合性表現だけを残し、pane、session、Agent instance、ローカル一時ファイル、公開コメントを唯一の保存先にしない。参照先を取得できない、または保存済み整合性表現と一致しない場合は、完了済みRoleを成果物の復元だけのために再実行せず`BLOCKED`とする。安全な保存先がなければ公開コメントを代替にせず`BLOCKED`とする。
 
-worktree fingerprintは、HEAD、`git status --porcelain=v1 -uall`の完全な結果、全変更pathのindexとworktreeのblob ID、mode、存在・削除状態を含む。未追跡ファイルもstageせず内容のblob IDを記録する。正規化した全項目のdigestを併記し、path集合だけで同一性を判定しない。開始時fingerprintと、状態遷移前後、レビュー引き渡し、`BLOCKED`、`WAITING_FOR_CI`、stage・commit前の各検証済みfingerprintを状態コメントまたはそこから参照する同じIssueの永続コメントへ残す。
+worktree fingerprintは、HEAD、`git status --porcelain=v1 -uall`の完全な結果、全変更pathのindexとworktreeのblob ID、mode、存在・削除状態を含む。未追跡ファイルもstageせず内容のblob IDを記録する。正規化した全項目のdigestを併記し、path集合だけで同一性を判定しない。完全fingerprint、完全porcelain、生path、unsalted blob ID、検証用秘密は権限制限された永続保存先だけへ残す。状態コメントとmarkerなしコメントにはopaque checkpoint、安全な要約、秘匿化済み整合性表現だけを保存し、安全な保存先がなければ`BLOCKED`とする。
 
-会話全文、コマンド出力全文、patch本文、CI生ログ、認証情報、token、秘密情報は保存しない。判断に必要な要約、内容を開示しないblob IDとdigest、権限上安全な参照先だけを残す。
+会話全文、コマンド出力全文、patch本文、CI生ログ、認証情報、token、秘密情報は保存しない。公開コメントには判断に必要な安全な要約、opaque checkpoint、秘匿化済み整合性表現だけを残す。完全porcelain、生path、unsalted Git blob ID、検証用秘密は公開しない。
 
 通常の細かな遷移は専用状態コメントの現在値として更新する。`BLOCKED`、再開、Reviewer承認、publish完了など、後から判断根拠になる重要なチェックポイントだけを新しいIssueコメントとして追記する。
 
@@ -176,14 +172,14 @@ Orchestratorはバックグラウンドで自動再開しない。利用者が�
 再開前に次を実態から取得し、保存状態と照合する。
 
 - 現在のbranchとworktree
-- 開始時と最後に検証済みのworktree fingerprint、現在のworktree fingerprint
+- 権限制限された永続保存先にある開始時と最後に検証済みのworktree fingerprint、および現在のworktree fingerprint
 - 開始前変更と累積manifest
 - commitとremote branch
 - Draft PRのbase、head、draft状態
 - Issueの`status:*`ラベル
 - 必須CIと対象head SHA
 
-実態が保存状態と一致する場合、同じrun IDのまま、保存済みの再開状態へ遷移して最後に検証済みのチェックポイントから続行する。blockerが未解消の場合は`BLOCKED`を維持する。pathが同じでも保存後にblob ID、mode、存在状態が変わった未commit変更は一致とみなさず、Implementer由来と推測しない。commitや外部変更者の明示記録など不変の証跡で由来を説明できる変化だけ、根拠を状態へ記録してから整合する。未把握のcommit、未レビュー変更、manifest内外を問わない説明不能なfingerprint差分、別Runとの競合がある場合は、内容を開かず状態も上書きせず`BLOCKED`とする。
+実態が保存状態と一致する場合、同じrun IDのまま、保存済みの再開状態へ遷移して最後に検証済みのチェックポイントから続行する。`WAITING_FOR_CI`または`BLOCKED`で前のOrchestrator実行が終了していた場合、同一Role・指定モデルの新しいAgent instanceで再開できる。「同じImplementer・Reviewer」は同一Orchestrator実行内のinstance継続を意味し、新しいReviewerは3つのmanifestの和集合を再レビューする。blockerが未解消の場合は`BLOCKED`を維持する。pathが同じでも保存後にblob ID、mode、存在状態が変わった未commit変更は一致とみなさず、Implementer由来と推測しない。commitや外部変更者の明示記録など不変の証跡で由来を説明できる変化だけ、根拠を安全な保存先へ記録してから整合する。未把握のcommit、未レビュー変更、manifest内外を問わない説明不能なfingerprint差分、別Runとの競合がある場合は、内容を開かず状態も上書きせず`BLOCKED`とする。
 
 通常のbase更新によってIssue branchにconflictが発生した場合、OrchestratorはbaseをIssue branchへmergeして競合状態を準備する。Gitが未解決の競合ファイルを実際に生成した場合だけConflict Resolverを呼び出す。将来競合しそうなPRの予防的比較や、Gitが競合として検出しない意味上の不整合には呼び出さない。意味上の不整合はReviewerが指摘し、既存のImplementer修正ループで扱う。
 
@@ -211,7 +207,7 @@ Reviewerが`APPROVED`を返した変更だけをcommit、pushしてDraft PRを�
 
 CI状態は30秒ごとに確認する。jobまたはstepの開始、完了、切替を観測可能な進捗とする。取得できる場合はログ末尾のハッシュ変化を補助に使えるが、ログ行数、ログ本文、`tail`だけに依存しない。
 
-状態と補助ログの双方に5分間変化がなければ、CIを失敗またはキャンセルせず`WAITING_FOR_CI`として現在のOrchestrator実行を終了する。PR、head SHA、確認対象check、最後に観測した状態、再開地点を保存する。再開時は同じPRとhead SHAを実態から確認し、CI確認を続行する。
+状態と補助ログの双方に5分間変化がなければ、CIを失敗またはキャンセルせず`WAITING_FOR_CI`として現在のOrchestrator実行を終了する。PR、head SHA、確認対象check、最後に観測した状態、再開地点を安全な保存先へ保存し、公開コメントにはopaque checkpoint、安全な要約、秘匿化済み整合性表現だけを残す。再開時は同じPRとhead SHAを実態から確認し、同一Role・指定モデルの新しいAgent instanceでCI確認を続行できる。
 
 CIから実行中のCodexセッションを起動または再開する通知workflowは、本契約の対象外とする。
 
@@ -244,8 +240,10 @@ Draft解除、PR承認、merge、branch削除、worktree cleanupは完了条件�
 | blocker未解消 | 明示的に再実行したが再開条件を満たさない | 同じrun IDで`BLOCKED`を維持 |
 | 状態境界での停止 | `IMPLEMENTING`完了後、`REVIEWING`へ移るための操作で停止 | 停止直前の状態を`IMPLEMENTING`、再開状態を`REVIEWING`として保存 |
 | Agent session終了後の再開 | 保存済みAgent instanceまたはpaneを再利用できない | 同じ役割と指定モデルの新しいAgentへ証跡を引き継ぐ。新しいReviewerは3つのmanifestの和集合を再レビュー |
+| `WAITING_FOR_CI`後の再開 | 前のOrchestrator実行が終了し、永続成果物と実態が一致 | 同じRole・指定モデルの新しいAgent instanceで再開し、CI確認を続行 |
 | 引き渡し成果物の欠落 | 完了済みRoleの成果物も永続参照先も取得できない | Roleの再実行や推測で復元せず`BLOCKED` |
 | 停止中の同一path編集 | manifest内のpathは同じだが保存済みfingerprintと内容identityが異なる | Implementer由来とみなさず、由来を不変の証跡で説明できなければ内容を開かず`BLOCKED` |
+| Implementer返却直後 | 手順6または16で`IMPLEMENTED`を返す | 呼出し直前・最後に検証済み・返却時のfingerprintと3 manifestの照合成功前には成果物もcheckpointも更新しない |
 | 完了済みIssueの再実行 | `COMPLETED`の保存状態と実態が一致 | 状態遷移と新しいrun ID発行を行わず、完了済みとして報告 |
 | 完了後のbase conflict | 通常のbase更新によるconflictだけを検知 | 同じrun IDで`COMPLETED`から`CONFLICT_RESOLUTION`へ遷移 |
 | 完了後のその他の不一致 | Draft PRのhead変更または未レビュー変更を検知 | 同じrun IDで`COMPLETED`から`BLOCKED`へ遷移し、不一致と必要な対応を保存 |

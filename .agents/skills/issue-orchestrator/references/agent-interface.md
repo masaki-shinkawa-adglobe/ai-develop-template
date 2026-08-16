@@ -130,13 +130,15 @@ CI_REMEDIATION
   BLOCKED            -> 利用者へ報告して終了
 ```
 
+`WAITING_FOR_CI`で現在のOrchestrator実行が終了した後は、権限制限された永続保存先の成果物と実態の照合に成功した場合、同じRole・指定モデルの新しいAgent instanceで再開できる。同じImplementer・Reviewerは同一Orchestrator実行内のinstance継続だけを意味する。新instanceのReviewerは3つのmanifestの和集合を再レビューする。
+
 OrchestratorはReviewerから`CHANGES_REQUESTED`を受けるたびに、Run全体の累積差し戻し回数を加算し、回数と指摘分類をactive marker付き状態コメントへ保存する。Issueに別の上限が明示されていなければ最大3回まで同じImplementerへ差し戻す。4回目の`CHANGES_REQUESTED`ではImplementerへ渡さず、停止直前の状態を`REVIEWING`、保存済み再開状態を`IMPLEMENTING`として、上限変更など再開に必要な人の判断を保存し、`BLOCKED`とする。Conflict Resolver後または`CI_REMEDIATION`後の再レビューも同じ累積回数へ含める。
 
 同じ指摘または同じテスト失敗が修正後も2回続くか、manifest、テスト結果、指摘内容に実質的な進展がない状態が2周続いた場合は、差し戻し上限に達する前でも`BLOCKED`とする。
 
 `PUBLISHING`後はDraft PRのbase branchに対するbranch protectionとrulesetが現在のPR head SHAへ要求するcheckを必須CIとして取得し、30秒ごとに確認する。必須checkを信頼できる方法で判定できない場合は未設定と推測せず`BLOCKED`とする。すべて成功した場合、または必須CI未設定の事実を記録した場合だけ、完了条件を再確認して`COMPLETED`とする。失敗したcheck、ログの安全な要約、関連テスト、レビュー済み差分からIssue実装に起因すると説明できる失敗だけを`CI_REMEDIATION`として同じImplementerへ渡し、関連テスト、同じReviewerの再レビュー、レビュー済み変更だけのcommitと同じbranchへのpushを経て、新しいhead SHAのCIを確認する。外部障害または原因不明は`BLOCKED`とし、状態と補助ログの双方が5分間無変化ならCIを継続させたまま`WAITING_FOR_CI`として現在の実行を終了する。
 
-Orchestratorは状態遷移、差し戻し回数、CI対象SHAとcheck状態、待機・停止理由に加え、再開に必要なRole成果物とworktree fingerprintを`<!-- issue-agent-run-state:active:v1 -->`付き状態コメントへ保存する。大きい成果物を同じIssueのmarkerなしコメントへ保存する場合は、状態コメントへrun ID、checkpointまたは差し戻しcycle、comment IDまたはURL、成果物種別、内容digestを記録する。`COMPLETED`は、Reviewer承認、3つのmanifestの由来とレビュー、default branch向けDraft PR、PR head SHAと確認対象CIのSHA一致、必須CIの全成功または未設定の記録を確認し、状態コメントとmarkerなしの完了チェックポイントを更新した後だけ成立する。
+Orchestratorは状態遷移、差し戻し回数、CI対象SHAとcheck状態、待機・停止理由、opaque checkpoint、安全な要約、秘匿化済み整合性表現を`<!-- issue-agent-run-state:active:v1 -->`付き状態コメントへ保存する。完全fingerprint、完全な`git status --porcelain=v1 -uall`、生path、unsalted Git blob ID、検証用秘密は権限制限された永続保存先だけへ保存し、公開コメントへ出さない。安全な保存先がなければ公開コメントを代替にせず`BLOCKED`とする。`COMPLETED`は、Reviewer承認、3つのmanifestの由来とレビュー、default branch向けDraft PR、PR head SHAと確認対象CIのSHA一致、必須CIの全成功または未設定の記録を確認し、公開状態コメントと安全な完了checkpointを更新した後だけ成立する。
 
 ## 再開用成果物
 
@@ -149,7 +151,7 @@ OrchestratorはRoleのOutcome名だけでなく、次の安全な引き渡し内
 - `APPROVED`: 確認結果、承認対象のworktree fingerprintまたはcommit、承認済みPR本文
 - `BLOCKED`: blocker、完了済み成果物、再開に必要な判断または外部変更
 
-参照先は同じIssue上の永続コメントなど権限上安全で取得可能なものに限り、pane、session、Agent instance、ローカル一時ファイルを唯一の保存先にしない。再開時に成果物または参照先を取得できない、もしくは保存digestと一致しない場合は、完了済みRoleの再実行や推測で復元せず`BLOCKED`とする。
+参照先は権限制限された永続保存先に限り、pane、session、Agent instance、ローカル一時ファイル、公開Issueコメントを唯一の保存先にしない。公開コメントにはopaque checkpoint、安全な要約、秘匿化済み整合性表現だけを残す。再開時に成果物または参照先を取得できない、もしくは保存digestと一致しない場合は、完了済みRoleの再実行や推測で復元せず`BLOCKED`とする。
 
 ## 変更manifest
 
@@ -161,9 +163,11 @@ Runは変更の由来を次の3つへ分離する。
 
 Orchestratorは開始前に`git status --porcelain=v1 -uall`を記録し、開始前から変更されているパスをImplementerへ渡す。Implementerはそのパスを変更しない。Issue実装に変更が必要な場合は、編集前に`BLOCKED`を返す。
 
-Orchestratorは新規Run開始時と各検証済みチェックポイントでworktree fingerprintを作る。fingerprintはHEAD、`git status --porcelain=v1 -uall`の完全な結果、全変更pathのindexとworktreeのblob ID、mode、存在・削除状態を含み、未追跡ファイルもstageせず内容のblob IDを含める。正規化した全項目のdigestも保存し、開始時fingerprintと各チェックポイントのfingerprintを状態コメントまたはそこから参照する同じIssueの永続コメントへ残す。
+Orchestratorは新規Run開始時と各検証済みチェックポイントでworktree fingerprintを作る。fingerprintはHEAD、`git status --porcelain=v1 -uall`の完全な結果、全変更pathのindexとworktreeのblob ID、mode、存在・削除状態を含み、未追跡ファイルもstageせず内容のblob IDを含める。完全fingerprint、完全porcelain、生path、unsalted blob ID、検証用秘密は権限制限された永続保存先だけへ保存する。公開Issueコメントにはopaque checkpoint、安全な要約、秘匿化済み整合性表現だけを残し、安全な保存先がなければ`BLOCKED`とする。
 
 Orchestratorはレビュー前、再開時、stage・commit前に、開始時、最後に検証済み、現在のfingerprintと3つのmanifestを比較する。開始後に増えたmanifest外の変更があれば、その由来を安全に説明できる場合だけ該当するmanifestへ記録する。manifest内でpathが同じでもblob ID、mode、存在状態のいずれかが保存後に変わっていれば同一変更とみなさず、commitや外部変更者の明示記録など不変の証跡で由来を説明できない限り、内容を開かず`BLOCKED`とする。照合前の変化をImplementerの累積manifestへ自動的に帰属させない。
+
+手順6と16の各Implementer返却後は、成果物またはcheckpointを更新する前に、呼出し直前、最後に検証済み、返却時のfingerprintと3つのmanifestを照合する。同一pathのidentity変化を不変の証跡で説明できた場合だけ成果物と検証済みcheckpointを更新し、説明できない場合は内容を開かず`BLOCKED`とする。
 
 base mergeで自動的に取り込まれ、取得済みbase SHAのblobと同一であることをOrchestratorが検証したpathは、Runが作成した変更ではないため3つのmanifestへ加えない。Reviewerにはbase SHA、blob同一性の検証結果、baseに対するPR差分を渡す。同一性を証明できないpathは通常のmanifest規則に従い、由来を説明できなければ`BLOCKED`とする。
 

@@ -10,6 +10,7 @@ GitHub Issue の要件整理から実装・レビュー・Draft PR 作成まで�
   issue-orchestrator/              # 1件の Issue 実装を進行
   issue-planner/                   # 実装計画
   issue-implementer/               # 実装とテスト
+  issue-conflict-resolver/         # 実際に発生した merge conflict の解消
   issue-reviewer/                  # 読み取り専用レビュー
   issue-agent-bootstrap/           # 導入環境の診断・初期化・検証
 ```
@@ -50,7 +51,7 @@ Herdrと`HERDR_ENV=1`は任意の推奨項目です。利用できない場合�
 
 ## Issue 実装フロー
 
-単一Issueの状態、証跡、停止、再開、CI完了条件は[`docs/loop-engineering.md`](docs/loop-engineering.md)を設計上の正とします。Issueごとの実行状態は対象GitHub Issueへ保存します。
+単一Issueの状態、証跡、停止、再開、CI完了条件は[`docs/loop-engineering.md`](docs/loop-engineering.md)を設計上の正とします。公開可能な実行状態、安全な要約、opaque checkpointは対象GitHub Issueへ保存し、完全な成果物、fingerprint、manifest、生path、unsalted Git blob ID、検証用秘密は権限制限された永続保存先へ分離します。
 
 `issue-orchestrator` は1件の GitHub Issue を受け取り、3つの通常Roleと、実際のmerge conflict時だけConflict Resolverを呼び出します。
 

@@ -111,6 +111,7 @@ Reviewer
   BLOCKED            -> 利用者へ報告して終了
 
 PUBLISHING
+  base conflict                     -> CONFLICT_RESOLUTION
   required CI成功                 -> COMPLETED
   required CI未設定               -> 未設定の証跡を保存してCOMPLETED
   required CI進行中かつ5分無変化  -> WAITING_FOR_CI
@@ -118,6 +119,7 @@ PUBLISHING
   外部障害または原因不明          -> BLOCKED
 
 WAITING_FOR_CI
+  base conflict                     -> CONFLICT_RESOLUTION
   required CI成功                 -> COMPLETED
   required CI進行中かつ5分無変化  -> WAITING_FOR_CI
   実装起因のrequired CI失敗       -> CI_REMEDIATION
@@ -134,7 +136,20 @@ OrchestratorはReviewerから`CHANGES_REQUESTED`を受けるたびに、Run全�
 
 `PUBLISHING`後はDraft PRのbase branchに対するbranch protectionとrulesetが現在のPR head SHAへ要求するcheckを必須CIとして取得し、30秒ごとに確認する。必須checkを信頼できる方法で判定できない場合は未設定と推測せず`BLOCKED`とする。すべて成功した場合、または必須CI未設定の事実を記録した場合だけ、完了条件を再確認して`COMPLETED`とする。失敗したcheck、ログの安全な要約、関連テスト、レビュー済み差分からIssue実装に起因すると説明できる失敗だけを`CI_REMEDIATION`として同じImplementerへ渡し、関連テスト、同じReviewerの再レビュー、レビュー済み変更だけのcommitと同じbranchへのpushを経て、新しいhead SHAのCIを確認する。外部障害または原因不明は`BLOCKED`とし、状態と補助ログの双方が5分間無変化ならCIを継続させたまま`WAITING_FOR_CI`として現在の実行を終了する。
 
-Orchestratorは状態遷移、差し戻し回数、CI対象SHAとcheck状態、待機・停止理由を`<!-- issue-agent-run-state:active:v1 -->`付き状態コメントへ保存する。`COMPLETED`は、Reviewer承認、3つのmanifestの由来とレビュー、default branch向けDraft PR、PR head SHAと確認対象CIのSHA一致、必須CIの全成功または未設定の記録を確認し、状態コメントとmarkerなしの完了チェックポイントを更新した後だけ成立する。
+Orchestratorは状態遷移、差し戻し回数、CI対象SHAとcheck状態、待機・停止理由に加え、再開に必要なRole成果物とworktree fingerprintを`<!-- issue-agent-run-state:active:v1 -->`付き状態コメントへ保存する。大きい成果物を同じIssueのmarkerなしコメントへ保存する場合は、状態コメントへrun ID、checkpointまたは差し戻しcycle、comment IDまたはURL、成果物種別、内容digestを記録する。`COMPLETED`は、Reviewer承認、3つのmanifestの由来とレビュー、default branch向けDraft PR、PR head SHAと確認対象CIのSHA一致、必須CIの全成功または未設定の記録を確認し、状態コメントとmarkerなしの完了チェックポイントを更新した後だけ成立する。
+
+## 再開用成果物
+
+OrchestratorはRoleのOutcome名だけでなく、次の安全な引き渡し内容を保存する。
+
+- `PLANNED`: Plannerの対象範囲、実装手順、テスト
+- `IMPLEMENTED`: 最新の変更内容、累積manifest、テスト結果、残作業
+- `RESOLVED`: 競合意図の根拠、解消内容、conflict-resolution manifest、テスト結果
+- `CHANGES_REQUESTED`: 未解決の各指摘の重要度、path、行、理由、必要な修正
+- `APPROVED`: 確認結果、承認対象のworktree fingerprintまたはcommit、承認済みPR本文
+- `BLOCKED`: blocker、完了済み成果物、再開に必要な判断または外部変更
+
+参照先は同じIssue上の永続コメントなど権限上安全で取得可能なものに限り、pane、session、Agent instance、ローカル一時ファイルを唯一の保存先にしない。再開時に成果物または参照先を取得できない、もしくは保存digestと一致しない場合は、完了済みRoleの再実行や推測で復元せず`BLOCKED`とする。
 
 ## 変更manifest
 
@@ -146,10 +161,12 @@ Runは変更の由来を次の3つへ分離する。
 
 Orchestratorは開始前に`git status --porcelain=v1 -uall`を記録し、開始前から変更されているパスをImplementerへ渡す。Implementerはそのパスを変更しない。Issue実装に変更が必要な場合は、編集前に`BLOCKED`を返す。
 
-Orchestratorはレビュー前に、開始前の変更、現在の変更、3つのmanifestを比較する。開始後に増えたmanifest外の変更があれば、その由来を安全に説明できる場合だけ該当するmanifestへ記録する。説明できない変更は内容を開かず`BLOCKED`とする。
+Orchestratorは新規Run開始時と各検証済みチェックポイントでworktree fingerprintを作る。fingerprintはHEAD、`git status --porcelain=v1 -uall`の完全な結果、全変更pathのindexとworktreeのblob ID、mode、存在・削除状態を含み、未追跡ファイルもstageせず内容のblob IDを含める。正規化した全項目のdigestも保存し、開始時fingerprintと各チェックポイントのfingerprintを状態コメントまたはそこから参照する同じIssueの永続コメントへ残す。
+
+Orchestratorはレビュー前、再開時、stage・commit前に、開始時、最後に検証済み、現在のfingerprintと3つのmanifestを比較する。開始後に増えたmanifest外の変更があれば、その由来を安全に説明できる場合だけ該当するmanifestへ記録する。manifest内でpathが同じでもblob ID、mode、存在状態のいずれかが保存後に変わっていれば同一変更とみなさず、commitや外部変更者の明示記録など不変の証跡で由来を説明できない限り、内容を開かず`BLOCKED`とする。照合前の変化をImplementerの累積manifestへ自動的に帰属させない。
 
 base mergeで自動的に取り込まれ、取得済みbase SHAのblobと同一であることをOrchestratorが検証したpathは、Runが作成した変更ではないため3つのmanifestへ加えない。Reviewerにはbase SHA、blob同一性の検証結果、baseに対するPR差分を渡す。同一性を証明できないpathは通常のmanifest規則に従い、由来を説明できなければ`BLOCKED`とする。
 
 Reviewerは`git status --porcelain=v1 -uall`とbaseに対するPR差分で変更パスを確認する。変更されたファイルの内容を読むのは3つのmanifestの和集合内だけとするが、レビュー文脈として必要な未変更の関連コードは読んでよい。Orchestratorがbase SHAとのblob同一性を検証したbase由来pathはmanifest外変更として扱わない。それ以外のmanifest外変更は、利用者の別作業や秘密情報の可能性があるため開かず、対象外変更として報告する。
 
-Orchestratorは承認後も、3つのmanifestの和集合内かつReviewerが確認した未commit変更だけを明示的にstageする。開始前から変更済みのパス、manifest外の変更、未レビュー変更をcommitへ含めない。既存commitを含むreconciliation manifestは再stageせず、PR差分とReviewerの確認対象が3つのmanifestの和集合に一致することを検証する。
+Orchestratorは承認後も、現在のfingerprintがReviewer承認対象のfingerprintと一致することを確認し、3つのmanifestの和集合内かつReviewerが確認した未commit変更だけを明示的にstageする。開始前から変更済みのパス、manifest外の変更、未レビュー変更をcommitへ含めない。既存commitを含むreconciliation manifestは再stageせず、PR差分とReviewerの確認対象が3つのmanifestの和集合に一致することを検証する。

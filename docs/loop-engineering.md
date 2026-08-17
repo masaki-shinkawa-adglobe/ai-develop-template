@@ -296,7 +296,7 @@ active marker付きコメントは、少なくとも次の公開可能な要約�
 | CI進捗あり | 30秒確認でjob/stepの開始、完了または状態切替を観測 | `PUBLISHING`を維持し、最終観測と進捗根拠を保存して確認を継続 |
 | 補助根拠のみ変化 | 安全なログ末尾hashが変化し、状態変化は未観測 | 補助根拠として保存して確認を継続する。本文、行数、`tail`単独では進捗としない |
 | CI継続中かつ5分無変化 | 状態と補助ログ根拠の双方に5分間変化がない | `WAITING_FOR_CI`へ遷移し、CIを継続したまま実行を終了 |
-| CIの失敗またはキャンセル | 必須checkが終了し失敗またはキャンセルを観測 | 後続の分類・修正・完了判定は本書のこの節の対象外 |
+| CIの失敗またはキャンセル | 必須checkが終了し失敗またはキャンセルを観測 | 現在のhead SHAに対する終端結果を、後続する「必須CIの終端結果分類と修復」に従って処理する |
 
 ### `WAITING_FOR_CI`からの明示再実行
 
@@ -309,6 +309,32 @@ active marker付きコメントは、少なくとも次の公開可能な要約�
 | CI無変化 | 必須CIが継続中で、状態と補助ログ根拠の双方が5分間無変化 | `WAITING_FOR_CI`。同一PR、head SHA、必須check、最終状態、最終観測、再開地点を保存して実行終了 |
 | 監視再開 | 明示再実行、保存済みPR/head SHA/必須checkと実態が一致 | 同じrun ID・checkpointからCI確認を再開 |
 | 監視再開の不一致 | 明示再実行だがPR、head SHA、必須checkのいずれかが不一致または照合不能 | `BLOCKED`。別PRや新しいheadの監視を推測して開始しない |
+
+### 必須CIの終端結果分類と修復
+
+必須CIが終端状態になったときは、各checkの結果を現在のPR head SHAに対応付けたまま分類する。`CI_REMEDIATION`へ遷移できるのは、失敗が今回の実装変更に起因すると安全に説明でき、Issueの対象範囲内で修正できる場合だけである。失敗の文面だけ、過去の類似、または推測によって実装起因と判定してはならない。
+
+flakyな失敗、GitHub Actionsまたは外部サービスの障害、原因不明の失敗、`cancelled`、`timed_out`、`action_required`、および安全に分類できない終端結果は、すべて`BLOCKED`とする。既存の差し戻し回数上限、同一の指摘またはテスト失敗が連続2回となる停止条件、連続2周の無進展停止条件も、CI修復にそのまま適用する。これらに該当する場合は修復を試みず、または継続せず`BLOCKED`とする。
+
+`CI_REMEDIATION`におけるImplementerのRole呼出しにも、呼出しID、呼出し前後のfingerprint、Role Outcome、返却された完全manifestからなる既存の帰属根拠を適用する。照合に成功した変更だけを累積Implementer manifestへ完全に帰属し、失敗を再現または検証する関連テストを実行する。修復後は同じReviewerが、累積Implementer manifest、conflict-resolution manifest、reconciliation manifestの和集合を再レビューして明示的に再承認しなければならない。Reviewerが確認・承認した変更だけを同じIssue branchへ再publishできる。再publish後は新しいPR head SHAを保存し、そのSHAに対応する必須CIを改めて特定して監視する。以前のhead SHAの結果、未レビューの変更、または別branchへのpublishで完了を判定してはならない。
+
+`COMPLETED`への遷移は、次の論理積をすべて満たすときに限る。
+
+- Reviewerの明示的な承認があり、その承認対象fingerprintが現在の変更と一致している。
+- 累積Implementer manifest、conflict-resolution manifest、reconciliation manifestの3種が由来別に保存・照合され、その和集合をReviewerが確認している。
+- default branchをbaseとするDraft PRが存在する。
+- PRのhead SHA、保存済みhead SHA、および必須CIを評価したSHAが一致している。
+- 同一SHAの全必須CIが成功している、または必須CIが未設定であることをbranch protectionと適用rulesetの双方から取得・記録している。
+- 状態コメントとprivate backendのcheckpointが`COMPLETED`、判定根拠、PR、head SHA、CI要約に更新されている。
+
+この完了はDraft PRを解除すること、追加の承認を得ること、mergeすること、branchを削除すること、またはworktreeをcleanupすることを含まない。
+
+| シナリオ | 入力 | 期待結果 |
+| --- | --- | --- |
+| 正常完了 | 同一head SHAの全必須CIが成功し、`COMPLETED`の全条件を満たす | 状態コメントとcheckpointを更新して`COMPLETED`。Draft解除、承認、merge、branch削除、worktree cleanupは行わない |
+| 必須CI未設定 | branch protectionと適用rulesetの双方から、当該head SHAに必須CIがないと取得・記録でき、他の完了条件を満たす | 必須CI未設定の根拠を記録して`COMPLETED` |
+| 実装起因の失敗 | 現在のhead SHAの必須CI失敗を今回の実装変更に安全に帰属でき、関連テストと対象範囲内の修正が可能 | `CI_REMEDIATION`。変更帰属・関連テスト・同じReviewerの再承認後、同じbranchへ再publishし、新head SHAを監視する |
+| 外部・原因不明の失敗 | flaky、GitHub Actions・外部障害、原因不明、`cancelled`、`timed_out`、`action_required`、または分類不能な終端結果 | 根拠を保存して`BLOCKED`。成功または実装起因として推測しない |
 
 ### 公開禁止情報
 
@@ -328,7 +354,6 @@ active marker付きコメントは、少なくとも次の公開可能な要約�
 - 複数Issue処理、スケジューラ、状態遷移を判定するプログラム
 - private backendの完全成果物の保存形式
 - 停止閾値と再開時の実態照合の詳細
-- Run完了条件の詳細
 - Orchestrator、Bootstrap、各RoleのSkill実装
 - CIポーリングの実装、worktree fingerprintの直列化形式、およびprivate backendの初期化実装
 - 明示再実行なしにRunを再開する自動再開機構

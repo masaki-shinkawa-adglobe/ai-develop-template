@@ -265,6 +265,51 @@ active marker付きコメントは、少なくとも次の公開可能な要約�
 
 この手順ではactive marker付きコメントを常に1件に保てる。開始前に単一のactive marker付きコメントを特定できない場合、または更新後の一意性を確認できない場合は、新Runを開始せず`BLOCKED`とする。
 
+## 必須CIの監視と`WAITING_FOR_CI`
+
+`PUBLISHING`では、Draft PRの現在のhead SHAに対して要求される必須CIを特定してから完了可否を判断する。この間もIssueラベルは`status:review`を維持する。`WAITING_FOR_CI`はCIの失敗やキャンセルではなく、CIを継続したまま現在のOrchestrator実行だけを終了する再開可能な状態である。
+
+### 必須checkの特定
+
+- OrchestratorはPRのbaseとなるdefault branchを特定し、そのbranch protectionと適用されるrulesetの両方から、現在のPR head SHAに要求される必須checkを取得する。branch protectionだけ、またはrulesetだけを根拠に、他方の要件を未設定と推測してはならない。
+- required status checks、required workflows、merge queueその他の適用条件を、PR、base branch、head SHAおよびGitHubが返す実態に対応付ける。同名checkの混同、過去headのcheck、別workflowの結果で充足を判定してはならない。
+- 権限不足、APIの取得不能、適用rulesetの解釈不能、required checkとhead SHAの対応不能、または要件の競合により必須checkを信頼できる方法で特定できない場合は、必須checkなしと推測せず`BLOCKED`とする。停止根拠と最後に安全に確認できた情報はprivate backendへ完全に保存し、公開Issueには安全な要約だけを記録する。
+- 必須checkの集合は、PR URL、head SHA、check識別子および判定根拠とともにRun状態へprivateに保存する。公開状態コメントにはPR参照、公開repositoryのhead SHA、CI要約、opaque checkpoint、安全な要約および秘匿化済み整合性表現だけを保存し、完全なAPI応答、ログ、内部識別子は保存しない。
+
+### 観測と進捗
+
+必須checkの特定に成功した後、Orchestratorは30秒ごとに現在のhead SHAのCI実態を確認する。各観測で、checkごとの状態、結論、関連jobおよびstepの状態、観測時刻をprivate backendへ保存する。
+
+次のいずれかを観測したときは、CIが継続している間の進捗として扱い、無進捗の連続時間をその観測時刻から数え直す。
+
+- jobまたはstepの開始
+- jobまたはstepの完了
+- jobまたはstepの状態切替
+
+ログ末尾から安全に計算した復元不能なhashの変化は補助的な進捗根拠にできる。ただし、ログ本文、ログ行数、`tail`の変化だけを進捗判定の根拠にしてはならない。CI生ログおよびhashの入力はprivate backendにだけ保存する。
+
+状態の観測結果と利用している補助ログ根拠の双方に、CIが継続中のまま5分間変化がない場合、OrchestratorはCIを失敗またはキャンセルとして扱わず、`WAITING_FOR_CI`へ遷移して実行を終了する。このcheckpointには、同一PR、head SHA、必須checkの集合、各checkの最後に観測した状態、最終観測時刻、次回再開地点をprivate backendへ完全に保存する。公開状態コメントとcheckpointコメントには、待機理由と安全なCI要約だけを記録する。
+
+| 観測結果 | 条件 | 遷移・処理 |
+| --- | --- | --- |
+| 必須checkを特定不能 | 要求されるcheckをhead SHAに対応付けられない、または取得・解釈不能 | `BLOCKED`。必須checkなしとは推測しない |
+| CI進捗あり | 30秒確認でjob/stepの開始、完了または状態切替を観測 | `PUBLISHING`を維持し、最終観測と進捗根拠を保存して確認を継続 |
+| 補助根拠のみ変化 | 安全なログ末尾hashが変化し、状態変化は未観測 | 補助根拠として保存して確認を継続する。本文、行数、`tail`単独では進捗としない |
+| CI継続中かつ5分無変化 | 状態と補助ログ根拠の双方に5分間変化がない | `WAITING_FOR_CI`へ遷移し、CIを継続したまま実行を終了 |
+| CIの失敗またはキャンセル | 必須checkが終了し失敗またはキャンセルを観測 | 後続の分類・修正・完了判定は本書のこの節の対象外 |
+
+### `WAITING_FOR_CI`からの明示再実行
+
+`WAITING_FOR_CI`のCI確認は、利用者または呼出し元による同じIssueの明示再実行でのみ再開できる。スケジューラ、CIイベント、ポーリング、paneその他の実行環境が自動再開してはならない。
+
+再開前にOrchestratorは、保存済みcheckpointのPR、head SHA、必須check集合と、実際のPR、head SHA、適用される必須check集合を照合する。すべて一致するときだけ、同じrun IDで保存済みの再開地点から30秒確認を再開する。PRの同一性、head SHAまたは必須check集合のいずれかが一致しない、または安全に照合できない場合は、状態を推測・上書きせず`BLOCKED`とする。
+
+| シナリオ | 入力 | 期待結果 |
+| --- | --- | --- |
+| CI無変化 | 必須CIが継続中で、状態と補助ログ根拠の双方が5分間無変化 | `WAITING_FOR_CI`。同一PR、head SHA、必須check、最終状態、最終観測、再開地点を保存して実行終了 |
+| 監視再開 | 明示再実行、保存済みPR/head SHA/必須checkと実態が一致 | 同じrun ID・checkpointからCI確認を再開 |
+| 監視再開の不一致 | 明示再実行だがPR、head SHA、必須checkのいずれかが不一致または照合不能 | `BLOCKED`。別PRや新しいheadの監視を推測して開始しない |
+
 ### 公開禁止情報
 
 公開Issueの状態コメントとcheckpointコメントには、次を保存してはならない。
@@ -283,7 +328,7 @@ active marker付きコメントは、少なくとも次の公開可能な要約�
 - 複数Issue処理、スケジューラ、状態遷移を判定するプログラム
 - private backendの完全成果物の保存形式
 - 停止閾値と再開時の実態照合の詳細
-- CI監視とRun完了条件の詳細
+- Run完了条件の詳細
 - Orchestrator、Bootstrap、各RoleのSkill実装
 - CIポーリングの実装、worktree fingerprintの直列化形式、およびprivate backendの初期化実装
 - 明示再実行なしにRunを再開する自動再開機構

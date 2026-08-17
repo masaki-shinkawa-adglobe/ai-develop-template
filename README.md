@@ -2,6 +2,10 @@
 
 GitHub Issue の要件整理から実装・レビュー・Draft PR 作成までを、役割分担して進める AI 開発用 Skill 集です。
 
+## 設計契約と実行状態
+
+単一Issue Runの状態、証跡、停止・再開、CI完了条件は[Loop Engineering設計契約](docs/loop-engineering.md)を単一の正とします。設計書は不変の契約、対象GitHub Issueは公開可能なRun状態と安全な要約、権限制限されたprivate backendは完全成果物・fingerprint・manifestを担います。これらの責務をrepository文書へ混在させません。
+
 ## 構成
 
 ```text

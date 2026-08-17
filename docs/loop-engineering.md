@@ -347,14 +347,36 @@ flakyな失敗、GitHub Actionsまたは外部サービスの障害、原因不�
 
 公開repositoryの`commit`および`head_sha`は、schemaに定める許可対象であり、この禁止対象には含めない。その他の公開に必要な情報は、これらの代わりに`safe_summary`、`opaque_checkpoint`、`redacted_integrity`を用いる。状態コメントの更新とcheckpointの作成は、この公開境界を破らない範囲で行う。
 
+## 受入シナリオ
+
+通常のBootstrap `verify`は、Markdownで定義した本契約、Skill契約、validatorおよび差分を**読み取り専用で確認する**。状態遷移を判定するプログラムや自動シナリオテストは追加しない。実動経路の確認は、明示承認されたlive verifyだけで行う。実際に通過していない経路を、live verify済みまたは成功済みとして報告してはならない。
+
+| シナリオ | 入力 | 期待結果 | 対応する既存契約・決定 |
+| --- | --- | --- | --- |
+| 正常完了 | Reviewerが明示承認し、Draft PR、同一head SHAの必須CI成功、その他の完了条件がそろう | 証跡を更新して`COMPLETED`。Draft解除、承認、mergeは行わない | 「必須CIの終端結果分類と修復」・完了条件（#17） |
+| 必須CI未設定 | branch protectionと適用rulesetの双方から、当該head SHAの必須CIなしを取得・記録でき、他の完了条件を満たす | 未設定の根拠を保存して`COMPLETED` | 「必須CIの終端結果分類と修復」・完了条件（#16、#17） |
+| レビュー差し戻し | Reviewerが1〜3回目の`CHANGES_REQUESTED`を返す | `IMPLEMENTING`へ戻し、修正後に同じReviewerが再レビューする | 「許可遷移」・「反復と安全停止の判定」（#10、#13） |
+| 4回目差し戻し | 4回目の`CHANGES_REQUESTED`が必要になる | Implementerへ再差し戻しせず`BLOCKED` | 「反復と安全停止の判定」（#13） |
+| 同一失敗連続 | 修正後も同一指摘または同一テスト失敗を連続2回観測する | 直ちに`BLOCKED` | 「反復と安全停止の判定」（#13） |
+| 無進展 | manifest、テスト結果、指摘内容のすべてに実質的進展がない周回を連続2回観測する | `BLOCKED` | 「反復と安全停止の判定」（#13） |
+| `BLOCKED`の明示再開 | 同じIssueの明示再実行で、保存済み証跡と実態が一致し、blockerも解消済み | 同じrun IDで保存済み`resume_state`とcheckpointから再開する | 「明示再実行時だけの再開」・「停止証跡と再開状態」（#15） |
+| `WAITING_FOR_CI`の明示再開 | 明示再実行で保存済みPR、head SHA、必須check集合と実態が一致する | 同じrun ID・checkpointから30秒確認を再開する | 「`WAITING_FOR_CI`からの明示再実行」（#15、#16） |
+| 状態不一致 | 未把握commit、未レビュー変更、説明不能なfingerprint差分、別Runとの競合、またはbase競合以外の不一致がある | 状態を推測・上書きせず`BLOCKED` | 「明示再実行時だけの再開」・「Worktree fingerprintとRole変更帰属」（#12、#15） |
+| CI無変化 | 必須CIが継続中で、状態と補助ログ根拠の双方に5分間変化がない | CIを継続したまま`WAITING_FOR_CI`へ遷移して実行を終了する | 「観測と進捗」・「`WAITING_FOR_CI`からの明示再実行」（#16） |
+| 実装起因CI失敗 | 現在のhead SHAの必須CI失敗を今回の実装変更に安全に帰属でき、対象範囲内で修正可能 | `CI_REMEDIATION`へ遷移し、関連テスト、再レビュー、再publish後に新head SHAを監視する | 「必須CIの終端結果分類と修復」（#17） |
+| 外部／原因不明CI失敗 | flaky、GitHub Actions・外部障害、原因不明、`cancelled`、`timed_out`、`action_required`、または分類不能な終端結果 | 成功・実装起因と推測せず根拠を保存して`BLOCKED` | 「必須CIの終端結果分類と修復」（#17） |
+| P1回帰: 新規Run directory作成 | run ID発行後、検証済み保存root配下で新規Runを開始する | 中間directoryとRun directoryを決定的・原子的に作成し、所有者、mode、非symlink、root配下性を再検証する | 「新規Runの作成」（#11） |
+| P1回帰: 通常Implementer変更の帰属 | Role呼出し前後のfingerprint差分が返却された累積Implementer manifestと一致し、manifest内のpathだけでidentityが変化する | 正常なImplementer変更として完全に帰属し、追加の外部証跡を要求しない | 「Role呼出しの帰属根拠」（#12） |
+
 ## 対象外
 
 次は本書の対象外とし、後続の設計または実装で扱う。
 
-- 複数Issue処理、スケジューラ、状態遷移を判定するプログラム
+- 複数Issue処理、スケジューラ、状態遷移を判定するプログラム、自動シナリオテスト
 - private backendの完全成果物の保存形式
 - 停止閾値と再開時の実態照合の詳細
 - Orchestrator、Bootstrap、各RoleのSkill実装
 - CIポーリングの実装、worktree fingerprintの直列化形式、およびprivate backendの初期化実装
 - 明示再実行なしにRunを再開する自動再開機構
-- GitHub Actions workflow、PRのDraft解除・承認・merge
+- CIイベントによるCodexの自動起動または再開、GitHub Actions workflowの追加・変更
+- live verifyの実行、PRのDraft解除・承認・merge

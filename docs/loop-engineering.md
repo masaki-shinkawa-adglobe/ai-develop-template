@@ -112,6 +112,46 @@ stateDiagram-v2
 
 `BLOCKED`は現在のOrchestrator実行を終了する状態である。ただしRun自体の終端ではない。blockerの解消後、再開前の照合に成功した場合だけ、同じrun IDで保存済みの再開状態へ遷移する。新しい実行が再開状態を推測して選んではならない。
 
+### 反復と安全停止の判定
+
+ReviewerからImplementerへ差し戻す既定上限は3回とする。対象Issueが上限を明示している場合だけ、その値で上書きできる。1回目から3回目の`CHANGES_REQUESTED`では`IMPLEMENTING`へ戻すが、4回目の`CHANGES_REQUESTED`が必要になった時点では差し戻さず`BLOCKED`とする。
+
+差し戻し上限に達していなくても、修正を試みた後に同一の指摘または同一のテスト失敗が連続2回観測された場合は、直ちに`BLOCKED`とする。同様に、累積manifest、テスト結果、指摘内容のすべてに実質的な進展がない周回が連続2回になった場合も`BLOCKED`とする。これらの比較はRun全体のprivate backendに保存した要約で行い、以前の値を推測してはならない。
+
+次の条件は回数を待たず、検出時点で`BLOCKED`とする。
+
+- 必要な権限がない。
+- 安全性に関する判断を自律的に確定できない。
+- Issueの対象範囲外の変更が必要である。
+- 利用者の開始前変更または第三者の変更と競合する。
+- 保存済み状態と実態に説明不能な不一致がある。
+
+未解決の失敗を成功として扱ってはならず、Reviewerの承認も推測してはならない。
+
+| 判定対象 | 入力 | 期待結果 |
+| --- | --- | --- |
+| 差し戻し回数 | 1〜3回目の`CHANGES_REQUESTED` | `IMPLEMENTING`へ遷移する |
+| 差し戻し回数 | 4回目の`CHANGES_REQUESTED`が必要 | `BLOCKED`とし、Implementerへ再差し戻ししない |
+| 同一失敗の反復 | 修正後も同一指摘または同一テスト失敗が連続2回 | `BLOCKED` |
+| 無進展 | manifest、テスト、指摘のすべてに進展なしが連続2周 | `BLOCKED` |
+| 即時停止 | 権限不足、安全性判断不能、範囲外変更、既存変更との競合、説明不能な保存状態不一致 | 直ちに`BLOCKED` |
+
+### 停止証跡と再開状態
+
+`BLOCKED`へ遷移するとき、Orchestratorは次の完全な停止証跡をprivate backendへ保存する。
+
+- 停止条件と根拠
+- 停止直前状態
+- 保存済み再開状態
+- 最後に検証済みのopaque checkpoint
+- 再開に必要な利用者の判断または外部状態の変更
+
+停止直前状態と保存済み再開状態は別々の値として保存し、一方から他方を推測してはならない。
+
+公開Issueのactive marker付き状態コメントには、既存schemaに従い、`state_before_stop`、`resume_state`、`stop_or_wait_reason`、`opaque_checkpoint`、`safe_summary`、`redacted_integrity`を記録する。これらには停止直前状態、保存済み再開状態、停止理由および再開に必要な情報を、安全化・秘匿化した範囲で含める。`BLOCKED`のcheckpointコメントも既存のcheckpoint契約に従い、停止直前状態、停止理由、opaque checkpoint、安全な要約および秘匿化済み整合性表現を記録する。
+
+停止根拠の完全な詳細、完全な保存済み状態、再開に必要な判断または外部変更の詳細、および完全成果物はprivate backendにのみ保存する。公開Issueをprivate backendの代替保存先として使用してはならない。
+
 ## Worktree fingerprintとRole変更帰属
 
 Orchestratorは、Roleの呼出し前後、再開前、Reviewerの確認前、およびpublish直前にworktree fingerprintを取得してprivate backendへ完全な形で保存する。fingerprintは少なくとも次を含む。

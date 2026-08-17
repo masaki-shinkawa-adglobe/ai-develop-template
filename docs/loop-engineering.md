@@ -112,6 +112,37 @@ stateDiagram-v2
 
 `BLOCKED`は現在のOrchestrator実行を終了する状態である。ただしRun自体の終端ではない。blockerの解消後、再開前の照合に成功した場合だけ、同じrun IDで保存済みの再開状態へ遷移する。新しい実行が再開状態を推測して選んではならない。
 
+## Worktree fingerprintとRole変更帰属
+
+Orchestratorは、Roleの呼出し前後、再開前、Reviewerの確認前、およびpublish直前にworktree fingerprintを取得してprivate backendへ完全な形で保存する。fingerprintは少なくとも次を含む。
+
+- `HEAD`のcommit SHA
+- `git status --porcelain=v1 -uall`の完全な出力
+- statusに現れた各pathについて、indexとworktreeそれぞれのblob ID、mode、存在または削除状態
+
+pathの同一性はpath名だけで判定しない。indexおよびworktreeのblob ID、mode、存在・削除状態の組をそのpathのidentityとして比較する。indexまたはworktreeにentryが存在しない場合も、その不在を明示して記録する。未追跡pathを含め、`-uall`で観測されるすべての変更pathを対象とする。
+
+完全fingerprint、生のpath、blob ID、完全manifestおよび比較結果はprivate backendだけに保存する。公開Issueには、opaque checkpoint、安全な要約、復元不能な秘匿化済み整合性表現だけを保存する。公開Issueを完全fingerprintまたはprivate backendの代替保存先にしてはならない。
+
+### Role呼出しの帰属根拠
+
+OrchestratorはRole呼出しごとに一意な呼出しIDを発行し、次の組を一体の帰属根拠としてprivate backendへ保存する。
+
+- 呼出し直前fingerprint
+- 呼出し返却直後fingerprint
+- Role Outcome
+- Roleが返却した完全manifest
+
+manifestは由来別に混在させない。Implementerの変更は累積Implementer manifest、Conflict Resolverの変更はconflict-resolution manifest、利用者・第三者・別RunなどRole外部の変更はreconciliation manifestへそれぞれ記録する。base SHAのblobと同一であることを検証できた自動merge由来の変更は、Run作成manifestへ混在させない。
+
+呼出し前後の差分が返却manifestと一致し、そのmanifest内のpathだけでidentityが変化した場合、その変化は正常なRole変更である。この場合、Implementerには追加の外部証跡を要求しない。初回呼出しを含むImplementerの返却成果物は、この呼出し境界の照合に成功した後だけ、永続成果物および検証済みcheckpointへ昇格できる。
+
+返却manifest外の新規または変更path、Role呼出し境界外のidentity変化、または同一pathへの説明不能な並行変更を検出した場合、Orchestratorは当該変更の内容を開かず`BLOCKED`とする。安全な要約とopaque checkpointだけを公開し、照合済みの証跡を損なわない。
+
+### レビューとpublishの固定
+
+Reviewerは、累積Implementer manifest、conflict-resolution manifest、reconciliation manifestの和集合とbaseとの差分を確認する。承認後にpublishできるのは、Reviewerが確認したものと同じfingerprintだけである。publish直前のfingerprintが異なる場合は、内容を推測または追加確認せず、帰属照合へ戻し、照合不能なら`BLOCKED`とする。
+
 ## 公開状態コメントと監査証跡
 
 公開Issueは、完全な永続保存backendではない。対象Issueにおける現行Runを安全に発見する状態索引と、重要な判断を監査するための要約だけを担う。完全成果物、累積manifestその他の詳細はprivate backendに保存し、公開Issueからはopaque checkpointで対応付ける。
@@ -191,7 +222,6 @@ active marker付きコメントは、少なくとも次の公開可能な要約�
 
 - 複数Issue処理、スケジューラ、状態遷移を判定するプログラム
 - private backendの完全成果物の保存形式
-- worktree fingerprintと変更帰属
 - 停止閾値と再開時の実態照合の詳細
 - CI監視とRun完了条件の詳細
 - Orchestrator、Bootstrap、各RoleのSkill実装

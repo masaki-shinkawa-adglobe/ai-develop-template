@@ -90,12 +90,85 @@ stateDiagram-v2
 
 `BLOCKED`は現在のOrchestrator実行を終了する状態である。ただしRun自体の終端ではない。blockerの解消後、再開前の照合に成功した場合だけ、同じrun IDで保存済みの再開状態へ遷移する。新しい実行が再開状態を推測して選んではならない。
 
+## 公開状態コメントと監査証跡
+
+公開Issueは、完全な永続保存backendではない。対象Issueにおける現行Runを安全に発見する状態索引と、重要な判断を監査するための要約だけを担う。完全成果物、累積manifestその他の詳細はprivate backendに保存し、公開Issueからはopaque checkpointで対応付ける。
+
+### 現行Runの発見
+
+現行Runの専用状態コメントには、次のhidden markerを含める。
+
+```text
+<!-- issue-agent-run-state:active:v1 -->
+```
+
+- 対象Issueには、active markerを含むコメントがちょうど1件だけ存在しなければならない。この一意性はIssueごとに判定する。
+- Orchestratorはhidden markerでこのコメントを機械的に発見する。人向けにIssue本文へ索引を置くことは要求しない。
+- marker付きコメントが欠落または重複している場合、現行Run、run ID、再開状態を推測してはならない。安全に特定できないため`BLOCKED`として差分を記録する。
+
+### 状態コメントv1 schema
+
+active marker付きコメントは、少なくとも次の公開可能な要約を持つ。値が未確定または取得不能な場合は、その事実を安全な要約として記録し、推測値で補完しない。
+
+| field | 内容 |
+| --- | --- |
+| `run_id` | 対象Issue内で識別するRun ID |
+| `started_at` / `updated_at` | Run開始時刻と状態コメントの最終更新時刻 |
+| `current_state` | 現在の状態 |
+| `state_before_stop` | 停止している場合の停止直前状態。それ以外は未設定であること |
+| `resume_state` | 照合成功後に再開する保存済み状態。再開不能または未確定ならその理由 |
+| `role` / `model` | 現在または直近のRoleと使用モデル |
+| `outcome` | 直近のRoleまたはRunのOutcome |
+| `review_return_count` | ReviewerからImplementerへ差し戻した回数 |
+| `test_summary` | 実行した検証の要約、成否、未実行ならその理由 |
+| `branch` / `commit` | 公開repositoryのbranch名とcommit SHA。公開済みrepositoryのcommit SHAは許可対象 |
+| `draft_pr` / `head_sha` | Draft PR参照と公開repositoryのhead SHA。未作成ならその状態。公開済みrepositoryのhead SHAは許可対象 |
+| `ci_summary` | 必須CIの要約、判定、継続中または未確認ならその状態 |
+| `stop_or_wait_reason` | `BLOCKED`または待機中の理由。該当しない場合は未設定であること |
+| `opaque_checkpoint` | private backend内の完全成果物を公開せずに対応付ける不透明なcheckpoint識別子 |
+| `safe_summary` | 判断、進捗、再開に必要な公開可能な要約 |
+| `redacted_integrity` | 秘匿化済みの整合性表現。元の成果物、path、Git objectを復元できる値は置かない |
+| `token_count` / `cost` | 取得できる場合だけ記録する任意のtoken数と費用。取得不能は失敗ではない |
+
+`opaque_checkpoint`、`safe_summary`、`redacted_integrity`は、公開情報とprivate backendの完全成果物を安全に対応付ける最小限の組である。公開Issueだけをprivate backendの代替保存先として使用してはならない。
+
+### 更新とcheckpoint
+
+通常の細かな状態遷移は、同じactive marker付き状態コメントを更新する。これにより、現行状態を一意に保つ。
+
+次の重要な出来事は、markerを含めない新規checkpointコメントとしてIssueタイムラインへ追記する。
+
+- `BLOCKED`への停止
+- 保存済み状態への再開
+- Reviewerの`APPROVED`
+- publish完了
+
+各checkpointコメントには、run ID、出来事の時刻、状態遷移、opaque checkpoint、安全な要約、秘匿化済み整合性表現を記録する。停止時は停止直前状態と停止理由を、再開時は照合済みの再開状態を含める。checkpointは監査履歴であり、active markerを付与して現行状態コメントとして扱ってはならない。
+
+利用者が以前のRunを明示的に破棄して最初から実行する場合は、次の順に処理する。
+
+1. 旧Runのrun ID、要約、破棄理由をmarkerなしのcheckpointコメントとして残す。この時点では既存のactive marker付き状態コメントを変更しない。
+2. 既存の単一active marker付き状態コメントを、markerを残したまま新Runのrun ID、初期状態、schemaの各値へ更新する。新しいmarker付きコメントは作成せず、旧コメントからmarkerを削除もしない。
+
+この手順ではactive marker付きコメントを常に1件に保てる。開始前に単一のactive marker付きコメントを特定できない場合、または更新後の一意性を確認できない場合は、新Runを開始せず`BLOCKED`とする。
+
+### 公開禁止情報
+
+公開Issueの状態コメントとcheckpointコメントには、次を保存してはならない。
+
+- 会話全文、完全成果物、累積manifest、patch、コマンド出力全文、CI生ログ
+- 認証情報、token、秘密情報、個人情報、秘密を含み得る環境値
+- 生のfilesystem path、private backendの実体位置、公開していない内部参照
+- unsalted Git blob ID、非公開成果物またはprivate backendのobject識別子など、非公開の成果物・Git objectを直接特定または復元できる値
+
+公開repositoryの`commit`および`head_sha`は、schemaに定める許可対象であり、この禁止対象には含めない。その他の公開に必要な情報は、これらの代わりに`safe_summary`、`opaque_checkpoint`、`redacted_integrity`を用いる。状態コメントの更新とcheckpointの作成は、この公開境界を破らない範囲で行う。
+
 ## 対象外
 
 次は本書の対象外とし、後続の設計または実装で扱う。
 
 - 複数Issue処理、スケジューラ、状態遷移を判定するプログラム
-- 公開Issueコメントとprivate backendの詳細
+- private backendのdirectory、権限、完全成果物の保存方法
 - worktree fingerprintと変更帰属
 - 停止閾値と再開時の実態照合の詳細
 - CI監視とRun完了条件の詳細

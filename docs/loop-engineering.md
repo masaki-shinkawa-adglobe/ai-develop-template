@@ -112,6 +112,26 @@ stateDiagram-v2
 
 `BLOCKED`は現在のOrchestrator実行を終了する状態である。ただしRun自体の終端ではない。blockerの解消後、再開前の照合に成功した場合だけ、同じrun IDで保存済みの再開状態へ遷移する。新しい実行が再開状態を推測して選んではならない。
 
+### 明示再実行時だけの再開
+
+停止済みRunの再開は、利用者または呼出し元が同じIssueを明示的に再実行した場合に限る。再実行要求でrun IDの指定を必須にしてはならない。Orchestrator、スケジューラ、CIポーリング、paneその他の実行環境は、停止済みRunを自動的に再開してはならない。再実行要求がない限り、保存済み再開状態は参照用の証跡であり、状態遷移を発生させない。
+
+明示再実行では、対象Issueの単一active marker付き状態コメントとprivate backendの完全成果物からrun IDを取得し、両者を照合する。run IDを特定できない、active markerが単一でない、または両者が一致しない場合は`BLOCKED`とする。照合できたrun IDについて、branch、公開済みcommit、remote branch、worktree fingerprint、累積Implementer manifest、conflict-resolution manifest、reconciliation manifest、Draft PR、Issueラベル、必須CIおよびPRのhead SHAを実態から取得して照合する。Git、GitHub、CIの実態は保存状態より優先するが、安全に説明できない差分を自動整合してはならない。pane ID、端末、agentプロセスIDなどの一時的な実行環境はRun同一性の要件に含めない。
+
+照合対象がすべて保存済み証跡と一致する場合、`WAITING_FOR_CI`はblocker解消を要求せず、同じrun IDで保存済みの`resume_state`および最後に検証済みのcheckpointから再開する。`BLOCKED`は停止理由となったblockerも解消済みである場合だけ、同じ方法で再開する。Runを新規作成するのは、利用者が以前のRunを明示的に破棄して最初から実行すると決めた場合だけである。明示的な破棄がない限り、再実行要求を新規Runとして扱ったり、run IDを再発行したりしてはならない。
+
+外部変更は、保存済み証跡との因果関係および変更主体を説明でき、reconciliation manifestへ完全に帰属できる場合だけ照合対象に含められる。未把握の変更、未レビューの変更、説明不能な変更、別Runに帰属する変更、または未解消blockerがある場合は、再開状態を推測せず`BLOCKED`とする。
+
+`COMPLETED`の再実行でも同じ照合を行う。一致する場合は同じrun IDの完了結果を報告し、Roleの再処理、CIの再待機、PRやラベルの更新を行わない。base更新によるIssue branchの競合だけは`CONFLICT_RESOLUTION`へ遷移できる。base競合以外の不一致はすべて`BLOCKED`とする。`CONFLICT_RESOLUTION`による変更を含め、3種のmanifestの和集合に変更がある場合は、新たなReviewerがその和集合を再レビューして承認するまでpublishまたは完了に進めない。
+
+| シナリオ | 入力 | 期待結果 |
+| --- | --- | --- |
+| `WAITING_FOR_CI`の正常再開 | 明示再実行、private成果物、公開状態、Git/PR/CI、3種のmanifestが一致 | blocker解消を要求せず、同じrun IDで保存済み`resume_state`および最後に検証済みのcheckpointから再開する |
+| `BLOCKED`の再開／blocker未解消 | 明示再実行で全照合対象が一致しblockerが解消済み、または保存済み停止理由がなお未解消 | 解消済みなら同じrun IDで保存済み`resume_state`およびcheckpointから再開し、未解消なら`BLOCKED`を維持する |
+| 状態不一致 | 未把握commit、未レビュー変更、説明不能なfingerprint差分、別Runとの競合、またはbase競合以外の不一致 | 状態を上書きせず`BLOCKED`とする。説明可能な外部変更だけはreconciliation manifestへ記録する |
+| 完了済み再確認 | `COMPLETED`で全照合対象が一致 | 同じrun IDの完了結果を報告し、Role、CI、PR、ラベルを再処理しない |
+| base conflict | `COMPLETED`または再開対象のRunで、base更新によるIssue branchの競合だけがある | 同じrun IDで`CONFLICT_RESOLUTION`へ遷移し、3種のmanifestの和集合を新たなReviewerが再レビューする |
+
 ### 反復と安全停止の判定
 
 ReviewerからImplementerへ差し戻す既定上限は3回とする。対象Issueが上限を明示している場合だけ、その値で上書きできる。1回目から3回目の`CHANGES_REQUESTED`では`IMPLEMENTING`へ戻すが、4回目の`CHANGES_REQUESTED`が必要になった時点では差し戻さず`BLOCKED`とする。
@@ -265,4 +285,6 @@ active marker付きコメントは、少なくとも次の公開可能な要約�
 - 停止閾値と再開時の実態照合の詳細
 - CI監視とRun完了条件の詳細
 - Orchestrator、Bootstrap、各RoleのSkill実装
+- CIポーリングの実装、worktree fingerprintの直列化形式、およびprivate backendの初期化実装
+- 明示再実行なしにRunを再開する自動再開機構
 - GitHub Actions workflow、PRのDraft解除・承認・merge

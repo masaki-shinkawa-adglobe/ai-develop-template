@@ -14,6 +14,24 @@ OUTCOME: <UPPER_SNAKE_CASE_VALUE>
 
 `BLOCKED`は、人の判断、権限、外部状態の変更、またはIssue範囲を超える対応が必要で、自律的に続行できない場合だけ使用する終端状態とする。通常の不明点、修正可能な失敗、出力形式の不足には使用しない。
 
+## 新規Run初期化
+
+OrchestratorはPlannerを起動する前、かつIssueラベルを更新する前に、新規Runのprivate backendを初期化する。初期化は`issue-orchestrator/scripts/initialize-run.sh <Issue番号>`を使用し、成功時・安全停止時ともに次のRun情報を機械可読なJSONで受け取る。停止時に未取得の識別子は`null`とする。
+
+| field | 契約 |
+| --- | --- |
+| `outcome` | 成功時は`INITIALIZED`、安全停止時は`BLOCKED` |
+| `run_id` | 暗号学的に発行されたRun ID |
+| `repository_id` | 認証情報を除去し、末尾`/`と任意の末尾`.git`を除いたorigin remote URLのSHA-256 |
+| `issue_number` | 対象Issue番号 |
+| `state` | 成功時は初期値`PLANNING`。安全停止時は初期状態が保存済みと推測しないため`null` |
+| `created_at` | 成功時のUTC作成時刻。停止時は出力しない |
+| `safe_summary` | 停止時の固定安全要約。成功時は出力しない |
+
+private backendのRun directoryは`<root>/<repository_id>/<issue_number>/<run_id>`であり、初期状態はそのdirectoryの`run.json`にだけ保存する。rootは`ISSUE_AGENT_STATE_DIR`を優先し、未設定時は`${XDG_STATE_HOME:-$HOME/.local/state}/issue-agent-runs`とする。directoryの不安全性、既存Run、作成・再検証・保存の失敗では、所有者やmodeの自動修復、代替root、公開Issueへの保存を行わない。
+
+初期化が失敗した場合、Orchestratorは`OUTCOME: BLOCKED`として、安全な要約（秘密情報、remote URL、private path、OSエラー詳細を含めない）と、取得済みならrun ID・repository ID・Issue番号を返す。この場合、ラベル更新、Plannerその他Roleの起動、公開Issueへの状態保存を行ってはならない。
+
 OrchestratorはOutcomeが欠落または未知の場合、本文を読み、同じpaneまたは同じサブエージェントへ確認・再出力を依頼するかを判断する。ただしcommit、push、PR作成にはReviewerの明示的な`OUTCOME: APPROVED`を必須とし、承認を推測しない。
 
 ## Planner

@@ -67,7 +67,7 @@ Orchestratorが起動する各役は、経路を問わず次の設定を明示�
 
 ## 手順
 
-1. 対象Issueとリポジトリの基本情報を確認する。作業開始前に`git status --porcelain=v1 -uall`を記録する。必要な3つの進捗ラベルが存在することを確認し、対象Issueを`status:in-progress`へ更新する。
+1. 対象Issueとリポジトリの基本情報を確認する。新規Runでは、ラベル更新およびPlanner起動の前に`./.agents/skills/issue-orchestrator/scripts/initialize-run.sh <Issue番号>`を実行する。この補助は暗号学的run IDを発行し、private backendに`PLANNING`の初期状態を保存する。`INITIALIZED`以外、またはコマンド失敗時は、ラベルを更新せずPlannerを起動せず、安全な要約とrun情報を`BLOCKED`として利用者へ返す。補助が返すrun IDとrepository IDをRun全体で保持する。成功後に限り作業開始前の`git status --porcelain=v1 -uall`を記録し、必要な3つの進捗ラベルが存在することを確認して、対象Issueを`status:in-progress`へ更新する。
 2. Herdrが利用可能ならHerdrを優先し、`$issue-planner`を呼び出して実装計画を作成させる。`PLANNED`なら続行し、`BLOCKED`なら`status:blocked`へ更新して終了する。
 3. Issue、計画、開始前から変更されているパスを`$issue-implementer`へ渡し、実装とテストを任せる。開始前の変更とmanifestが同じパスなら、変更を混在させず`BLOCKED`として終了する。
 4. 開始前の変更、現在の変更、Implementerの累積manifestを比較する。開始後に増えたmanifest外の変更があれば、同じImplementerへ説明またはmanifest更新を依頼する。

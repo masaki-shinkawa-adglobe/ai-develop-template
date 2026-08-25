@@ -34,6 +34,14 @@ private backendのRun directoryは`<root>/<repository_id>/<issue_number>/<run_id
 
 OrchestratorはOutcomeが欠落または未知の場合、本文を読み、同じpaneまたは同じサブエージェントへ確認・再出力を依頼するかを判断する。ただしcommit、push、PR作成にはReviewerの明示的な`OUTCOME: APPROVED`を必須とし、承認を推測しない。
 
+## 公開Run状態コメント
+
+新規Runの初期化成功後、かつラベル更新前に、Orchestratorは`issue-orchestrator/scripts/public-state-comment.sh active-create`で状態コメントv1を作成する。通常遷移は`active-update`で既存コメントだけを更新する。いずれもactive markerは対象Issueにちょうど1件でなければならず、欠落、重複、API失敗、更新後の一意性未成立では状態を推測せず安全に停止する。
+
+`BLOCKED`、保存済み状態への再開、Reviewerの`APPROVED`、publish完了では、active更新に加えて`checkpoint`でmarkerなしの監査コメントを追記する。checkpointのPOST前後で、同じRun IDの単一activeを確認する。公開入力はschemaで許可された値だけとし、private path、manifest、patch、コマンド出力、生ログ、秘密情報、private object IDを渡さない。旧Runを利用者が明示破棄する場合は、単一active確認後に`switch`を使用し、旧Run ID・旧状態・旧Run要約・破棄理由・遷移と新Run schemaを検証したうえで、旧Run checkpointのPOST、既存activeのPATCH、一意性再確認の順を崩さない。
+
+状態コメントまたはcheckpointの操作が失敗した場合、Orchestratorはラベル更新、Role起動、publishを続行せず、公開に安全な要約だけを返す。
+
 ## Planner
 
 許可するOutcome:

@@ -67,17 +67,17 @@ Orchestratorが起動する各役は、経路を問わず次の設定を明示�
 
 ## 手順
 
-1. 対象Issueとリポジトリの基本情報を確認する。新規Runでは、ラベル更新およびPlanner起動の前に`./.agents/skills/issue-orchestrator/scripts/initialize-run.sh <Issue番号>`を実行する。この補助は暗号学的run IDを発行し、private backendに`PLANNING`の初期状態を保存する。`INITIALIZED`以外、またはコマンド失敗時は、ラベルを更新せずPlannerを起動せず、安全な要約とrun情報を`BLOCKED`として利用者へ返す。補助が返すrun IDとrepository IDをRun全体で保持する。成功後に限り作業開始前の`git status --porcelain=v1 -uall`を記録し、必要な3つの進捗ラベルが存在することを確認して、対象Issueを`status:in-progress`へ更新する。
-2. Herdrが利用可能ならHerdrを優先し、`$issue-planner`を呼び出して実装計画を作成させる。`PLANNED`なら続行し、`BLOCKED`なら`status:blocked`へ更新して終了する。
-3. Issue、計画、開始前から変更されているパスを`$issue-implementer`へ渡し、実装とテストを任せる。開始前の変更とmanifestが同じパスなら、変更を混在させず`BLOCKED`として終了する。
+1. 対象Issueとリポジトリの基本情報を確認する。新規Runでは、ラベル更新およびPlanner起動の前に`./.agents/skills/issue-orchestrator/scripts/initialize-run.sh <Issue番号>`を実行する。この補助は暗号学的run IDを発行し、private backendに`PLANNING`の初期状態を保存する。`INITIALIZED`以外、またはコマンド失敗時は、ラベルを更新せずPlannerを起動せず、安全な要約とrun情報を`BLOCKED`として利用者へ返す。補助が返すrun IDとrepository IDをRun全体で保持する。初期化成功後、ラベル更新前に`bash .agents/skills/issue-orchestrator/scripts/public-state-comment.sh active-create`へschema v1の明示値を渡し、active marker付き状態コメントを作成する。作成失敗、一意性未成立、または公開境界違反では安全に停止し、ラベル更新・Role起動を行わない。成功後に限り作業開始前の`git status --porcelain=v1 -uall`を記録し、必要な3つの進捗ラベルが存在することを確認して、対象Issueを`status:in-progress`へ更新する。
+2. Herdrが利用可能ならHerdrを優先し、Planner起動前にactive commentを`PLANNING`へ更新してから`$issue-planner`を呼び出して実装計画を作成させる。`PLANNED`なら続行し、`BLOCKED`ならactiveを`BLOCKED`へ更新して停止checkpointを追記し、両方の成功後にだけ`status:blocked`へ更新して終了する。
+3. Plannerが`PLANNED`を返した後、Implementer起動前にactive commentを`IMPLEMENTING`へ更新する。成功後にIssue、計画、開始前から変更されているパスを`$issue-implementer`へ渡し、実装とテストを任せる。開始前の変更とmanifestが同じパスなら、変更を混在させず`BLOCKED`として終了する。
 4. 開始前の変更、現在の変更、Implementerの累積manifestを比較する。開始後に増えたmanifest外の変更があれば、同じImplementerへ説明またはmanifest更新を依頼する。
-5. `status:review`へ更新し、Issue、計画、manifest内の変更（未追跡ファイルを含む）、テスト結果を、新しい`$issue-reviewer`へ渡す。
-6. Reviewerが`CHANGES_REQUESTED`なら、`status:in-progress`へ戻して同じImplementerへ指摘を渡す。`IMPLEMENTED`を回収後、`status:review`へ更新し、更新された完全なmanifestとテスト結果を同じReviewerへ渡して再レビューさせる。固定回数を設けず、停滞時は`status:blocked`へ更新して終了し、利用者へ報告する。
-7. Planner、Implementer、Reviewerのいずれかが`BLOCKED`なら`status:blocked`へ更新する。Reviewerが`BLOCKED`ならcommit、push、PR作成を行わず、理由と残作業を利用者へ報告する。
+5. Reviewer起動前にactive commentを`REVIEWING`へ更新し、成功後に`status:review`へ更新する。続けてIssue、計画、manifest内の変更（未追跡ファイルを含む）、テスト結果を、新しい`$issue-reviewer`へ渡す。
+6. Reviewerが`CHANGES_REQUESTED`なら、activeを`IMPLEMENTING`へ更新してから`status:in-progress`へ戻し、同じImplementerへ指摘を渡す。`IMPLEMENTED`を回収後はactiveを`REVIEWING`へ更新してから`status:review`へ更新し、更新された完全なmanifestとテスト結果を同じReviewerへ渡して再レビューさせる。固定回数を設けず、停滞時はactiveを`BLOCKED`へ更新して停止checkpointを追記し、その成功後に`status:blocked`へ更新して終了する。
+7. 各通常遷移では、ラベル更新または次のRole起動の前に、同じactive commentを`public-state-comment.sh active-update`で更新する。`BLOCKED`、保存済み状態への再開、Reviewerの`APPROVED`、publish完了では、active更新に加えてmarkerなしの`checkpoint`を追記する。各操作が成功するまで、ラベル変更、Role起動、publishを続行しない。Planner、Implementer、Reviewerのいずれかが`BLOCKED`なら、停止checkpointを残してから`status:blocked`へ更新する。Reviewerが`APPROVED`なら、承認checkpointを残してからpublishへ進む。Reviewerが`BLOCKED`ならcommit、push、PR作成を行わず、理由と残作業を利用者へ報告する。
 8. Reviewerが明示的に`APPROVED`を返した場合だけpublishへ進む。現在のbranchと既存PRの状態を確認し、default branch上または既存PRがmerge済みのbranch上なら、新しい`agent/{issue番号}-{短い説明}`branchを作成する。
 9. Implementerのmanifest内かつReviewerが確認した変更だけを明示的にstageしてcommitする。開始前から存在した変更、manifest外の変更、未レビュー変更を含めない。
 10. `status:review`を維持したままcommitをoriginへpushし、Reviewerが作成したPR本文を使ってdefault branch向けのdraft PRを作成する。`gh pr create`では`--assignee @me`を指定し、認証中のGitHubユーザーをassigneeへ設定する。PR本文に対象Issue、変更内容、テスト結果がなければ、同じReviewerへ補完を依頼する。
-11. 各役、commit、push、PRの結果を利用者へ簡潔に報告する。
+11. 利用者が旧Runの破棄と新規開始を明示した場合だけ、単一activeを確認して`public-state-comment.sh switch`を使う。旧Run ID・検証済み旧状態・旧Run safe summary・明示破棄理由・遷移・新Runの全schema値を渡し、全入力を検証した後に旧Run checkpointのPOST、既存active commentのPATCH、更新後の一意性確認の順で行う。各役、commit、push、PRの結果を利用者へ簡潔に報告する。
 
 対象Issueが特定できない場合だけ、Issue番号またはURLを利用者へ確認する。
 

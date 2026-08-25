@@ -127,3 +127,11 @@ Orchestratorはレビュー前に、開始前の変更、現在の変更、Imple
 Reviewerは`git status --porcelain=v1 -uall`で全変更パスを確認する。変更されたファイルの内容を読むのはmanifest内だけとするが、レビュー文脈として必要な未変更の関連コードは読んでよい。manifest外の変更は、利用者の別作業や秘密情報の可能性があるため開かず、対象外変更として報告する。
 
 Orchestratorは承認後も、manifest内かつReviewerが確認した変更だけを明示的にstageする。開始前から変更済みのパス、manifest外の変更、未レビュー変更をcommitへ含めない。
+
+## Worktree fingerprint と Role 帰属
+
+Orchestratorはprivate Run directoryだけへ、Role呼出し前後、再開前、Reviewer確認前、publish直前のfingerprintを保存する。fingerprintはHEAD SHA、`git status --porcelain=v1 -uall`の完全出力、およびstatusに現れる各pathのindex/worktree blob ID、mode、存在または削除状態を含む。未解決conflictのindexはstage 1、2、3を省略せず、stage番号ごとに記録する。path名だけで同一性を判定しない。完全fingerprint、生path、blob ID、完全manifest、比較結果を公開Issueへ保存または送信してはならない。
+
+各Role呼出しには一意な呼出しIDを付け、呼出し前後fingerprint、Outcome、Role返却の完全manifestを一体でprivate backendへ保存する。Implementer、Conflict Resolver、Role外部変更はそれぞれ累積Implementer manifest、conflict-resolution manifest、reconciliation manifestへ分離する。Role前後のidentity差分と当該由来の前回累積manifestの和集合が返却manifestと完全一致して初めて、その呼出しの成果物と累積manifestを昇格できる。変更由来を持たないPlannerおよびReviewerはmanifestを返さず、`origin: none`として呼出しID・前後fingerprint・Outcomeだけを保存する。この種のRole境界でidentity変化があれば、変更由来へ推測して昇格せず`BLOCKED`とする。
+
+manifest外path、Role呼出し境界外のidentity変化、同一pathへの説明不能な並行変更は、内容を開かず`BLOCKED`とする。Reviewerには3種manifestの和集合、baseとの差分、確認対象fingerprintを渡す。Reviewer承認後も、publish直前fingerprintがReviewer確認時のものと一致する場合だけpublishできる。不一致は帰属照合へ戻し、照合不能なら`BLOCKED`とする。

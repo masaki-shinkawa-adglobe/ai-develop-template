@@ -16,12 +16,12 @@ Orchestratorから起動するときは、`gpt-5.6-terra` と reasoning effort `
 ## 作業
 
 1. 適用される`AGENTS.md`、Issue、計画を読む。
-2. Orchestratorから渡された作業開始前の変更パスを確認し、そのファイルを編集しない。Issue実装に編集が必要なら、編集前に`BLOCKED`を返す。
+2. Orchestratorから渡された呼出しID、Role直前fingerprint名、累積Implementer manifest、および作業開始前の変更パスを確認する。その変更パスを編集しない。Issue実装に編集が必要なら、編集前に`BLOCKED`を返す。
 3. 関連コードとテストを確認する。
 4. 対象範囲を満たす最小の実装を行う。
 5. 関連テストを実行する。
 6. 一時ファイル、検証用変更、プロセス、コンテナなど、自分が作成した検証環境を後片付けする。
-7. `git status --short`を確認し、変更内容、累積した変更ファイル、テスト結果、残作業を返す。
+7. `git status --porcelain=v1 -uall`を確認し、今回のRole呼出し境界で変化したpathを累積Implementer manifestへ加えた完全manifestとして返す。manifest外path、境界外の変更、同一pathへの説明不能な並行変更を発見した場合は内容を開かず`BLOCKED`を返す。Orchestratorによるfingerprint照合が成功するまで成果物が昇格しないことを前提に、呼出しIDを本文へ記載する。
 
 ## 実行環境
 

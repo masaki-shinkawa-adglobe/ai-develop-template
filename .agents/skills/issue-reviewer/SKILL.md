@@ -22,6 +22,7 @@ Orchestratorから起動するときは、`gpt-5.6-sol` と reasoning effort `hi
 - デバッグコード、秘密情報、不要な生成物が残っていないか
 - `git status --porcelain=v1 -uall`で変更パスを確認し、変更されたファイルはImplementerの累積manifest内だけを読む。レビュー文脈として必要な未変更の関連コードは読んでよい
 - manifest外の変更は内容を開かず、対象外変更として報告する
+- Orchestratorから渡されたReviewer確認fingerprint、baseとの差分、累積Implementer manifest・conflict-resolution manifest・reconciliation manifestの和集合だけを確認する。承認はそのfingerprintに限定され、publish直前のfingerprintが同一でなければ再照合が必要である
 - 安価で重要な検証を選び、Implementerから独立して再実行する
 
 ## 実行環境
